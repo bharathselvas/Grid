@@ -17,12 +17,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NATIONAL_KPIS, PIPELINE_DATA } from "@/features/admin/adminData";
+import { useCaseStore } from "@/stores/caseStore";
 import { STAGES } from "@/lib/stages";
 import { stageShortLabel, stageGroupColor } from "@/lib/format";
 
 const KPI_ICONS = [Files, Files, MapPin, Building2, MapPin, IndianRupee, IndianRupee, Users2, Home, AlertTriangle];
 
 export function NationalOverviewPage() {
+  const { projects } = useCaseStore();
+  const activeProjects = projects.filter((p) => p.statusStage !== "closed").length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -57,6 +61,7 @@ export function NationalOverviewPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {NATIONAL_KPIS.map((kpi, i) => {
           const Icon = KPI_ICONS[i] ?? Files;
+          const isLiveActiveProjects = i === 0 && kpi.label === "Active Projects";
           return (
             <Card key={kpi.label}>
               <CardContent className="p-4">
@@ -64,8 +69,12 @@ export function NationalOverviewPage() {
                   <p className="text-[11px] font-medium text-muted-foreground">{kpi.label}</p>
                   <Icon className="h-4 w-4 text-slate-500" />
                 </div>
-                <p className="mt-1 text-xl font-bold text-[#0F2340]">{kpi.value}</p>
-                <p className="text-[11px] text-muted-foreground">{kpi.subtext}</p>
+                <p className="mt-1 text-xl font-bold text-[#0F2340]">
+                  {isLiveActiveProjects ? String(activeProjects) : kpi.value}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {isLiveActiveProjects ? "From shared caseStore state" : kpi.subtext}
+                </p>
               </CardContent>
             </Card>
           );

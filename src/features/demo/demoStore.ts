@@ -97,8 +97,8 @@ let notifCounter = INITIAL_DEMO_NOTIFICATIONS.length;
 export const useDemoStore = create<DemoStore>((set, get) => ({
   // ── Initial State ──────────────────────────────────────────────────
   project: INITIAL_DEMO_PROJECT,
-  currentStage: "closed",
-  completedStages: [...STAGE_ORDER],
+  currentStage: "proposal",
+  completedStages: [],
   parcels: [...INITIAL_DEMO_PARCELS],
   objections: [...INITIAL_DEMO_OBJECTIONS],
   awards: [...INITIAL_DEMO_AWARDS],

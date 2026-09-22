@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useDemoStore } from "../demo/demoStore";
 import { STAGE_ORDER, STAGE_LABELS } from "../demo/workflowTypes";
 import { getLifecycleProgress, formatStageForDisplay } from "../demo/workflowEngine";
 
 // ═══════════════════════════════════════════════════════════════════════
-// DemoControls — demo control panel for judges
+// DemoControls — demo control panel for judges (hidden behind Shift+D)
 // Reset, Advance, Jump to Stage, Speed
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -13,6 +13,28 @@ export function DemoControls() {
     useDemoStore();
   const [showPanel, setShowPanel] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [hotkeyEnabled, setHotkeyEnabled] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.shiftKey || e.code !== "KeyD") return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      setHotkeyEnabled((v) => !v);
+      setShowPanel(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const progress = getLifecycleProgress(completedStages);
   const currentIdx = STAGE_ORDER.indexOf(currentStage);
@@ -38,7 +60,7 @@ export function DemoControls() {
     goToStage(stage);
   };
 
-  if (!isDemoMode) return null;
+  if (!isDemoMode || !hotkeyEnabled) return null;
 
   return (
     <>

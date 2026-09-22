@@ -7,10 +7,16 @@ import { MOCK_AUDIT } from "@/mocks/audit";
 import { nextStage, stageProgress } from "@/lib/stages";
 import type { Project } from "@/types/domain";
 
+export type AdvanceResult =
+  | { ok: true }
+  | { ok: false; code: "final" | "sia_gate" | "not_found"; reason: string };
+
 type CaseStore = {
   cases: AcquisitionCase[];
   projects: Project[];
   audit: AuditEvent[];
+  /** caseId → SIA prerequisite complete (gate for leaving stage `sia`) */
+  siaCompleted: Record<string, boolean>;
   selectedCaseId: string | null;
   query: string;
   /** spec alias: search */
@@ -27,7 +33,8 @@ type CaseStore = {
   setFilters: (patch: Partial<{ stage: LifecycleStage | "all"; district: string; search: string }>) => void;
   selectCase: (id: string | null) => void;
 
-  advanceStage: (caseId: string, actorName: string, actorRole: RoleId) => boolean;
+  advanceStage: (caseId: string, actorName: string, actorRole: RoleId) => AdvanceResult;
+  completeSia: (caseId: string, actorName: string, actorRole: RoleId) => void;
   assignCase: (caseId: string, roleId: RoleId, assigneeName?: string) => void;
   addAuditEvent: (event: AuditEvent) => void;
   updateCase: (caseId: string, patch: Partial<AcquisitionCase>) => void;
@@ -67,6 +74,7 @@ export const useCaseStore = create<CaseStore>((set, get) => ({
   cases: [...SEEDED_CASES],
   projects: [...MOCK_PROJECTS],
   audit: [...MOCK_AUDIT],
+  siaCompleted: {},
   selectedCaseId: null,
   query: "",
   get search() {
@@ -133,11 +141,44 @@ export const useCaseStore = create<CaseStore>((set, get) => ({
       };
     }),
 
+  completeSia: (caseId, actorName, actorRole) => {
+    const c = get().cases.find((x) => x.id === caseId);
+    if (!c) return;
+    set((s) => ({
+      siaCompleted: { ...s.siaCompleted, [caseId]: true },
+      audit: [
+        {
+          id: `aud-${Date.now()}`,
+          caseId,
+          at: nowISO(),
+          actorName,
+          actorRole,
+          action: "Completed SIA assessment prerequisite (mock)",
+          stage: c.stage,
+          before: c.stage,
+          after: c.stage,
+          ip: "10.194.22.99",
+        } satisfies AuditEvent,
+        ...s.audit,
+      ],
+    }));
+  },
+
   advanceStage: (caseId, actorName, actorRole) => {
     const c = get().cases.find((x) => x.id === caseId);
-    if (!c) return false;
+    if (!c) return { ok: false, code: "not_found", reason: "Case not found." };
     const nxt = nextStage(c.stage);
-    if (!nxt) return false;
+    if (!nxt) return { ok: false, code: "final", reason: "Cannot advance — already at final stage." };
+
+    // SIA prerequisite gate: leaving stage `sia` requires completed SIA assessment
+    if (c.stage === "sia" && !get().siaCompleted[caseId]) {
+      return {
+        ok: false,
+        code: "sia_gate",
+        reason: "Required prerequisite: SIA assessment is incomplete.",
+      };
+    }
+
     const today = nowISO().slice(0, 10);
     const slaDueAt = nxt === "closed" ? null : new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
@@ -169,7 +210,7 @@ export const useCaseStore = create<CaseStore>((set, get) => ({
       cases: s.cases.map((x) => (x.id === caseId ? updated : x)),
       audit: [event, ...s.audit],
     }));
-    return true;
+    return { ok: true };
   },
 }));
 

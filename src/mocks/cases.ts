@@ -129,10 +129,10 @@ export const MOCK_CASES: AcquisitionCase[] = [
   },
   {
     id: "case-007",
-    caseNo: "LA/OD/KHO/JAT/2024-25/0019",
+    caseNo: "LA/MH/PN/HAV/2024-25/0019",
     projectId: "proj-006",
-    title: "Jatni — Canal Distributary (2 parcels)",
-    jurisdiction: { state: "Odisha", stateCode: "OD", district: "Khordha", tehsil: "Jatni", village: "Jatni" },
+    title: "Haveli Canal Distributary (2 parcels)",
+    jurisdiction: { state: "Maharashtra", stateCode: "MH", district: "Pune", tehsil: "Haveli", village: "Jatni" },
     stage: "sia",
     status: "active",
     priority: "normal",

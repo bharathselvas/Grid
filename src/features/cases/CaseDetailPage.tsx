@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, MapPin, Calendar, User, FileText, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { ArrowLeft, MapPin, Calendar, User, FileText, AlertTriangle, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
 import { useCaseStore } from "@/stores/caseStore";
+import type { AdvanceResult } from "@/stores/caseStore";
 import { useSessionStore } from "@/stores/sessionStore";
 import { STAGE_BY_ID, nextStage } from "@/lib/stages";
 import { formatDate, formatINR, slaBadge } from "@/lib/format";
@@ -10,13 +12,22 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { StageStepper } from "@/components/domain/StageStepper";
 
 export function CaseDetailPage() {
   const { caseId } = useParams();
-  const { cases, audit, advanceStage } = useCaseStore();
+  const { cases, audit, advanceStage, completeSia, siaCompleted } = useCaseStore();
   const { user } = useSessionStore();
   const c = cases.find((x) => x.id === caseId);
+  const [refusal, setRefusal] = useState<Extract<AdvanceResult, { ok: false }> | null>(null);
 
   if (!c) {
     return (
@@ -42,9 +53,54 @@ export function CaseDetailPage() {
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 5);
   const sla = slaBadge(c.slaStatus);
+  const siaIncomplete = c.stage === "sia" && !siaCompleted[c.id];
 
   return (
     <div className="space-y-4">
+      <Dialog open={refusal !== null} onOpenChange={(open) => !open && setRefusal(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#B42318]">
+              <ShieldAlert className="h-5 w-5" /> ACTION BLOCKED
+            </DialogTitle>
+            <DialogDescription>
+              {refusal?.code === "sia_gate" ? (
+                <span className="space-y-2 block">
+                  <span className="block text-sm font-medium text-slate-800">
+                    Required prerequisite: <span className="gov-mono">SIA</span>
+                  </span>
+                  <span className="block text-sm font-medium text-[#B42318]">
+                    Status: <span className="gov-mono">INCOMPLETE</span>
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Complete the required SIA assessment before advancing this case.
+                  </span>
+                </span>
+              ) : (
+                refusal?.reason
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            {refusal?.code === "sia_gate" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  completeSia(c.id, user.name, user.roleId);
+                  setRefusal(null);
+                }}
+              >
+                Complete SIA prerequisite
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setRefusal(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Button variant="ghost" size="sm" asChild>
         <Link to="/app/cases">
           <ArrowLeft className="h-4 w-4" /> Back to cases
@@ -109,8 +165,8 @@ export function CaseDetailPage() {
                   <Button
                     size="sm"
                     onClick={() => {
-                      const ok = advanceStage(c.id, user.name, user.roleId);
-                      if (!ok) alert("Cannot advance — already at final stage.");
+                      const result = advanceStage(c.id, user.name, user.roleId);
+                      if (!result.ok) setRefusal(result);
                     }}
                   >
                     Advance to {STAGE_BY_ID[nxt].shortLabel} (mock) →
@@ -120,10 +176,24 @@ export function CaseDetailPage() {
                     <CheckCircle2 className="h-3.5 w-3.5" /> Closed — no further transitions
                   </Badge>
                 )}
+                {siaIncomplete && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => completeSia(c.id, user.name, user.roleId)}
+                  >
+                    Complete SIA prerequisite
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" disabled>
                   Request clarification (later)
                 </Button>
               </div>
+              {siaIncomplete && (
+                <p className="text-xs text-[#B42318]">
+                  Gate active: advancing beyond SIA requires the SIA assessment prerequisite.
+                </p>
+              )}
               {nxt && (
                 <p className="text-xs text-muted-foreground">
                   Next: {STAGE_BY_ID[nxt].label} — {STAGE_BY_ID[nxt].statutoryRef}
