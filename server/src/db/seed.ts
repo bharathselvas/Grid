@@ -54,6 +54,7 @@ const ORG = {
   collectoratePune: id(105),
   wrdOdisha: id(106),
   revenueMh: id(107),
+  wrdMaharashtra: id(108),
 } as const;
 
 const USER = {
@@ -69,6 +70,10 @@ const PROJECT = {
   puneRingRoad: id(301),
   jatniCanal: id(302),
   mihanSez: id(303),
+  /** live project past its statutory target date + stage SLA (delayed/critical) */
+  puneWaterSupply: id(304),
+  /** completed project (status closed) — proves the "completed" KPI */
+  mihanAccessRoad: id(305),
 } as const;
 
 const DATASET = { puneCadastral: id(401) } as const;
@@ -112,6 +117,7 @@ export async function seed(): Promise<void> {
       { id: ORG.collectoratePune, name: "Collectorate, Pune", code: "COL-PUNE", orgType: "district_auth", jurisdictionLabel: "Pune District" },
       { id: ORG.wrdOdisha, name: "Water Resources Dept., Odisha", code: "WRD-OD", orgType: "state_dept", jurisdictionLabel: "Odisha" },
       { id: ORG.revenueMh, name: "Revenue Dept., Maharashtra", code: "REV-MH", orgType: "state_dept", jurisdictionLabel: "Maharashtra" },
+      { id: ORG.wrdMaharashtra, name: "Water Resources Dept., Maharashtra", code: "WRD-MH", orgType: "state_dept", jurisdictionLabel: "Maharashtra" },
     ])
     .onConflictDoNothing();
 
@@ -207,6 +213,48 @@ export async function seed(): Promise<void> {
         budgetCr: "1875.00",
         requiredAreaHa: "420.0000",
         targetDate: "2027-06-30",
+        createdBy: USER.requiringOrg,
+      },
+      {
+        id: PROJECT.puneWaterSupply,
+        projectCode: "MH/PUNE/WRD/2024-25/011",
+        projectName: "Pune Metropolitan Water Supply — Right Bank Intake",
+        requiringOrganizationId: ORG.wrdMaharashtra,
+        projectCategory: "infrastructure",
+        applicableAct: "RFCTLARR",
+        purpose: "Raw water intake and conveyance for the Pune metropolitan supply.",
+        description: "Right bank intake with 86.5 ha of riverine land requirement.",
+        status: "active",
+        currentWorkflowStage: "objections_hearing",
+        jurisdictionId: JURIS.pune,
+        state: "Maharashtra",
+        district: "Pune",
+        ministry: "Ministry of Jal Shakti",
+        budgetCr: "640.00",
+        requiredAreaHa: "86.5000",
+        // Past the statutory target date: seeded so the delayed/critical
+        // derivation is exercised by real rows, not by hard-coded UI values.
+        targetDate: "2026-06-30",
+        createdBy: USER.requiringOrg,
+      },
+      {
+        id: PROJECT.mihanAccessRoad,
+        projectCode: "MH/NAG/MADC/2023-24/007",
+        projectName: "MIHAN Access Road — Phase 1",
+        requiringOrganizationId: ORG.madc,
+        projectCategory: "infrastructure",
+        applicableAct: "RFCTLARR",
+        purpose: "Approach road linking the MIHAN SEZ to NH-44.",
+        description: "Completed and closed acquisition — 24 ha.",
+        status: "closed",
+        currentWorkflowStage: "closed",
+        jurisdictionId: JURIS.nagpur,
+        state: "Maharashtra",
+        district: "Nagpur",
+        ministry: "Ministry of Civil Aviation",
+        budgetCr: "180.00",
+        requiredAreaHa: "24.0000",
+        targetDate: "2025-12-31",
         createdBy: USER.requiringOrg,
       },
     ])
@@ -313,10 +361,35 @@ export async function seed(): Promise<void> {
     .onConflictDoNothing();
 
   // ── Workflow instances + their creation transition ────────────────────────
-  const workflowRows = [
+  type WorkflowSeedRow = {
+    entityId: string;
+    stage: string;
+    ownerRole: string;
+    actor: string;
+    /** backdated stage entry so SLA-based delay derivation has real data */
+    stageEnteredDaysAgo?: number;
+    status?: string;
+  };
+
+  const workflowRows: WorkflowSeedRow[] = [
     { entityId: PROJECT.puneRingRoad, stage: "compensation", ownerRole: "collector_cala", actor: USER.requiringOrg },
     { entityId: PROJECT.jatniCanal, stage: "sia", ownerRole: "sia_expert", actor: USER.requiringOrg },
     { entityId: PROJECT.mihanSez, stage: "preliminary_notification", ownerRole: "collector_cala", actor: USER.requiringOrg },
+    {
+      entityId: PROJECT.puneWaterSupply,
+      stage: "objections_hearing",
+      ownerRole: "collector_cala",
+      actor: USER.requiringOrg,
+      stageEnteredDaysAgo: 95,
+    },
+    {
+      entityId: PROJECT.mihanAccessRoad,
+      stage: "closed",
+      ownerRole: "collector_cala",
+      actor: USER.requiringOrg,
+      stageEnteredDaysAgo: 300,
+      status: "completed",
+    },
   ];
 
   const instanceIdByEntity = new Map<string, string>();
@@ -332,8 +405,11 @@ export async function seed(): Promise<void> {
         entityType: "project",
         entityId: row.entityId,
         currentStage: row.stage,
-        status: "active",
+        status: row.status ?? "active",
         ownerRoleId: row.ownerRole,
+        startedAt: row.stageEnteredDaysAgo
+          ? new Date(Date.now() - row.stageEnteredDaysAgo * 86_400_000)
+          : new Date(),
       })
       .onConflictDoNothing();
   }
@@ -363,6 +439,8 @@ export async function seed(): Promise<void> {
     { entityId: PROJECT.puneRingRoad, code: "MH/PUNE/NHAI/2025-26/042", stage: "compensation" },
     { entityId: PROJECT.jatniCanal, code: "OD/KHORDHA/WRD/2024-25/003", stage: "sia" },
     { entityId: PROJECT.mihanSez, code: "MH/NAG/MADC/2024-25/018", stage: "preliminary_notification" },
+    { entityId: PROJECT.puneWaterSupply, code: "MH/PUNE/WRD/2024-25/011", stage: "objections_hearing" },
+    { entityId: PROJECT.mihanAccessRoad, code: "MH/NAG/MADC/2023-24/007", stage: "closed" },
   ];
 
   for (const event of projectSeedEvents) {

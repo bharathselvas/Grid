@@ -1,8 +1,19 @@
 import { apiRequest, type Paginated } from "./client";
-import type { ProjectDto } from "./types";
+import type { ProjectDto, RiskLevel } from "./types";
 
 export async function listProjects(
-  query: { q?: string; state?: string; status?: string; stage?: string; limit?: number; offset?: number } = {},
+  query: {
+    q?: string;
+    state?: string;
+    district?: string;
+    ministry?: string;
+    status?: string;
+    stage?: string;
+    category?: string;
+    risk?: RiskLevel;
+    limit?: number;
+    offset?: number;
+  } = {},
 ): Promise<Paginated<ProjectDto>> {
   return apiRequest<Paginated<ProjectDto>>("/api/projects", { query: { limit: 100, ...query } });
 }

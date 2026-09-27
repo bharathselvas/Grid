@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { paginationSchema } from "../../shared/validation/pagination.js";
+import { RISK_LEVELS } from "../../shared/workflow/risk.js";
 import { isStageId } from "../../shared/workflow/stages.js";
 
 export const PROJECT_CATEGORIES = [
@@ -24,9 +25,11 @@ function isValidDateString(value: string): boolean {
 export const listProjectsQuerySchema = paginationSchema.extend({
   state: z.string().min(1).max(100).optional(),
   district: z.string().min(1).max(100).optional(),
+  ministry: z.string().min(1).max(200).optional(),
   stage: z.string().refine(isStageId, "Unknown workflow stage").optional(),
   status: z.enum(PROJECT_STATUSES).optional(),
   category: z.enum(PROJECT_CATEGORIES).optional(),
+  risk: z.enum(RISK_LEVELS).optional(),
   q: z.string().min(1).max(200).optional(),
 });
 

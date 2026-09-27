@@ -75,6 +75,8 @@ export type AuditEventDto = {
   createdAt: string;
 };
 
+export type RiskLevel = "critical" | "high" | "medium" | "low" | "on_track";
+
 export type ProjectDto = {
   id: string;
   projectCode: string;
@@ -99,7 +101,127 @@ export type ProjectDto = {
   createdByUser: string | null;
   createdAt: string;
   updatedAt: string;
+  /** when the project entered its current workflow stage */
+  stageEnteredAt: string;
+  /** statutory SLA (days) for the current stage */
+  stageSlaDays: number;
+  /** days elapsed in the current stage */
+  daysInStage: number;
+  /** derived risk level (see server shared/workflow/risk.ts) */
+  risk: RiskLevel;
+  /** live project overdue on its target date or past its stage SLA */
+  delayed: boolean;
+  /** most recent project/transition activity timestamp */
+  lastActivityAt: string;
   parcelCount: number;
+};
+
+// ── National admin (DoLR) aggregates ────────────────────────────────────────
+
+export type UnavailableMetric = { key: string; label: string; reason: string };
+
+export type OverviewKpis = {
+  totalProjects: number;
+  activeProjects: number;
+  completedProjects: number;
+  delayedProjects: number;
+  attentionProjects: number;
+  totalParcels: number;
+  parcelAreaHa: number;
+  requiredAreaHa: number;
+  stateCount: number;
+  districtCount: number;
+  auditEventsLast7Days: number;
+  unavailableMetrics: UnavailableMetric[];
+};
+
+export type OverviewPipelineRow = {
+  stage: string;
+  label: string;
+  shortLabel: string;
+  group: string;
+  order: number;
+  slaDays: number;
+  count: number;
+  delayedCount: number;
+  percentage: number;
+  attention: boolean;
+  progress: number;
+};
+
+export type OverviewStateRow = {
+  state: string;
+  projects: number;
+  activeProjects: number;
+  delayedProjects: number;
+  attentionProjects: number;
+  parcels: number;
+  parcelAreaHa: number;
+  requiredAreaHa: number;
+};
+
+export type NationalOverviewDto = {
+  asOf: string;
+  kpis: OverviewKpis;
+  pipeline: OverviewPipelineRow[];
+  states: OverviewStateRow[];
+};
+
+export type FacetRow = { value: string; count: number };
+
+export type ProjectFacetsDto = {
+  states: FacetRow[];
+  ministries: FacetRow[];
+  stages: FacetRow[];
+  risks: FacetRow[];
+};
+
+// ── Workflow instance history ───────────────────────────────────────────────
+
+export type WorkflowTransitionDto = {
+  id: string;
+  fromStage: string | null;
+  toStage: string;
+  action: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  actorRole: string | null;
+  actorRoleLabel: string | null;
+  isAllowed: boolean;
+  reason: string | null;
+  createdAt: string;
+};
+
+export type WorkflowInstanceDto = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  currentStage: string;
+  status: string;
+  ownerRoleId: string | null;
+  ownerRoleLabel: string | null;
+  startedAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  transitions: WorkflowTransitionDto[];
+};
+
+// ── Document metadata ───────────────────────────────────────────────────────
+
+export type DocumentDto = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  stage: string | null;
+  documentType: string;
+  title: string;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  verificationStatus: string;
+  uploadedBy: string | null;
+  uploadedByName: string | null;
+  createdAt: string;
 };
 
 export type ParcelDto = {

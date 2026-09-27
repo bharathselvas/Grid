@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import type { Db } from "../../db/client.js";
-import { jurisdictions, organizations, projects, users } from "../../db/schema.js";
+import { jurisdictions, organizations, projects, users, workflowInstances } from "../../db/schema.js";
+import { daysInStageSql, isDelayedSql, riskSql, slaDaysSql } from "../../shared/workflow/risk.js";
 import type { ListProjectsQuery } from "./projects.schemas.js";
 
 export type ProjectListRow = {
@@ -27,8 +28,17 @@ export type ProjectListRow = {
   createdByUser: string | null;
   createdAt: Date | string;
   updatedAt: Date | string;
+  stageEnteredAt: Date | string;
+  stageSlaDays: number;
+  daysInStage: number;
+  risk: string;
+  delayed: boolean;
+  lastActivityAt: Date | string;
   parcelCount: number;
 };
+
+const projectWorkflowJoin = () =>
+  and(eq(workflowInstances.entityType, "project"), eq(workflowInstances.entityId, projects.id));
 
 const selection = {
   id: projects.id,
@@ -54,6 +64,12 @@ const selection = {
   createdByUser: users.name,
   createdAt: projects.createdAt,
   updatedAt: projects.updatedAt,
+  stageEnteredAt: sql<Date | string>`COALESCE(${workflowInstances}.started_at, ${projects}.created_at)`,
+  stageSlaDays: slaDaysSql("projects"),
+  daysInStage: daysInStageSql("projects", "workflow_instances"),
+  risk: riskSql("projects", "workflow_instances"),
+  delayed: isDelayedSql("projects", "workflow_instances"),
+  lastActivityAt: sql<Date | string>`GREATEST(${projects}.updated_at, COALESCE((SELECT max(wt.created_at) FROM workflow_transitions wt WHERE wt.workflow_instance_id = ${workflowInstances}.id), ${projects}.created_at))`,
   parcelCount: sql<number>`(SELECT count(*)::int FROM parcels WHERE parcels.project_id = ${projects.id})`,
 };
 
@@ -63,16 +79,19 @@ function baseQuery(db: Db) {
     .from(projects)
     .leftJoin(organizations, eq(projects.requiringOrganizationId, organizations.id))
     .leftJoin(jurisdictions, eq(projects.jurisdictionId, jurisdictions.id))
-    .leftJoin(users, eq(projects.createdBy, users.id));
+    .leftJoin(users, eq(projects.createdBy, users.id))
+    .leftJoin(workflowInstances, projectWorkflowJoin());
 }
 
 function buildFilters(query: ListProjectsQuery) {
   const conditions = [];
   if (query.state) conditions.push(eq(projects.state, query.state));
   if (query.district) conditions.push(eq(projects.district, query.district));
+  if (query.ministry) conditions.push(eq(projects.ministry, query.ministry));
   if (query.stage) conditions.push(eq(projects.currentWorkflowStage, query.stage));
   if (query.status) conditions.push(eq(projects.status, query.status));
   if (query.category) conditions.push(eq(projects.projectCategory, query.category));
+  if (query.risk) conditions.push(sql`${riskSql("projects", "workflow_instances")} = ${query.risk}`);
   if (query.q) {
     const pattern = `%${query.q}%`;
     conditions.push(sql`(${projects.projectName} ILIKE ${pattern} OR ${projects.projectCode} ILIKE ${pattern})`);
@@ -84,13 +103,16 @@ export async function listProjects(db: Db, query: ListProjectsQuery): Promise<{ 
   const where = buildFilters(query);
   const rows = await baseQuery(db)
     .where(where)
-    .orderBy(asc(projects.createdAt))
+    // Tie-break on id: seeded rows can share a created_at, and offset
+    // pagination needs a stable total order.
+    .orderBy(asc(projects.createdAt), asc(projects.id))
     .limit(query.limit)
     .offset(query.offset);
 
   const totalRows = await db
     .select({ total: sql<number>`count(*)::int` })
     .from(projects)
+    .leftJoin(workflowInstances, projectWorkflowJoin())
     .where(where);
 
   return { rows, total: totalRows[0]?.total ?? 0 };

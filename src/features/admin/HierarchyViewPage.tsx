@@ -4,18 +4,33 @@ import {
   ChevronDown,
   Building2,
   Users,
-  Files,
-  Clock3,
   MapPin,
   Shield,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { HIERARCHY_TREE, type HierarchyNode } from "@/features/admin/adminData";
+import { getJurisdictionTree, listProjects, useRequiredApi } from "@/services/api";
+import type { JurisdictionTreeNode } from "@/services/api";
+import { ApiErrorState, ApiLoadingState } from "@/components/domain/ApiStates";
+
+/**
+ * Hierarchy View — tree comes from `GET /api/jurisdictions?tree=true`.
+ * Per-node project counts are the server's direct counts rolled up over the
+ * subtree (presentation-only aggregation); "Needs Attention" counts live
+ * projects in the subtree whose derived risk is critical/high.
+ */
+type UiNode = {
+  id: string;
+  label: string;
+  type: "national" | "state" | "district" | "tehsil" | "field";
+  children?: UiNode[];
+  projects?: number;
+  attention?: number;
+  officials?: string[];
+};
 
 const TYPE_ICON: Record<string, typeof Shield> = {
   national: Shield,
-  ministry: Building2,
   state: MapPin,
   district: Building2,
   tehsil: MapPin,
@@ -24,12 +39,33 @@ const TYPE_ICON: Record<string, typeof Shield> = {
 
 const TYPE_COLORS: Record<string, string> = {
   national: "bg-[#0F2340]",
-  ministry: "bg-[#1A3560]",
   state: "bg-[#243E6B]",
   district: "bg-[#2E4A7A]",
   tehsil: "bg-[#4A6FA5]",
   field: "bg-[#5B7FB8]",
 };
+
+const TYPE_FOR_LEVEL: Record<string, UiNode["type"]> = {
+  national: "national",
+  state: "state",
+  district: "district",
+  tehsil: "tehsil",
+  village: "field",
+};
+
+function buildNode(jurisdiction: JurisdictionTreeNode, attentionByJuris: Map<string, number>): UiNode {
+  const children = (jurisdiction.children ?? []).map((child) => buildNode(child, attentionByJuris));
+  const attentionDirect = attentionByJuris.get(jurisdiction.id) ?? 0;
+  return {
+    id: jurisdiction.id,
+    label: jurisdiction.name,
+    type: TYPE_FOR_LEVEL[jurisdiction.level] ?? "field",
+    children,
+    projects: jurisdiction.projectCount + children.reduce((sum, child) => sum + (child.projects ?? 0), 0),
+    attention: attentionDirect + children.reduce((sum, child) => sum + (child.attention ?? 0), 0),
+    officials: jurisdiction.officials,
+  };
+}
 
 function TreeNode({
   node,
@@ -37,10 +73,10 @@ function TreeNode({
   selectedId,
   onSelect,
 }: {
-  node: HierarchyNode;
+  node: UiNode;
   level?: number;
   selectedId: string | null;
-  onSelect: (node: HierarchyNode) => void;
+  onSelect: (node: UiNode) => void;
 }) {
   const [expanded, setExpanded] = useState(level < 2);
   const hasChildren = node.children && node.children.length > 0;
@@ -94,14 +130,40 @@ function TreeNode({
 }
 
 export function HierarchyViewPage() {
-  const [selectedNode, setSelectedNode] = useState<HierarchyNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<UiNode | null>(null);
+
+  const { data: roots, error, reload } = useRequiredApi(async () => {
+    const [tree, projects] = await Promise.all([getJurisdictionTree(), listProjects({ limit: 200 })]);
+    const attentionByJuris = new Map<string, number>();
+    for (const project of projects.items) {
+      if ((project.risk === "critical" || project.risk === "high") && project.jurisdictionId) {
+        attentionByJuris.set(project.jurisdictionId, (attentionByJuris.get(project.jurisdictionId) ?? 0) + 1);
+      }
+    }
+    return tree.items.map((jurisdiction) => buildNode(jurisdiction, attentionByJuris));
+  }, []);
+
+  if (error && !roots) {
+    return (
+      <div className="space-y-5">
+        <ApiErrorState error={error} onRetry={reload} label="Unable to load the jurisdiction hierarchy." />
+      </div>
+    );
+  }
+  if (!roots) {
+    return (
+      <div className="space-y-5">
+        <ApiLoadingState label="Loading hierarchy…" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold tracking-tight text-[#0F2340]">Hierarchy View</h1>
-          <p className="text-xs text-muted-foreground">Organizational and jurisdiction hierarchy — DoLR → Ministry → State → District → Tehsil → Field</p>
+          <p className="text-xs text-muted-foreground">Jurisdiction hierarchy — National → State → District → Tehsil → Village</p>
         </div>
       </div>
 
@@ -109,14 +171,20 @@ export function HierarchyViewPage() {
         {/* Tree */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Organization & Jurisdiction Tree</CardTitle>
+            <CardTitle className="text-sm">Jurisdiction Tree</CardTitle>
           </CardHeader>
           <CardContent className="p-2 max-h-[700px] overflow-auto">
-            <TreeNode
-              node={HIERARCHY_TREE}
-              selectedId={selectedNode?.id ?? null}
-              onSelect={setSelectedNode}
-            />
+            {roots.map((root) => (
+              <TreeNode
+                key={root.id}
+                node={root}
+                selectedId={selectedNode?.id ?? null}
+                onSelect={setSelectedNode}
+              />
+            ))}
+            {roots.length === 0 && (
+              <p className="p-4 text-center text-sm text-muted-foreground">No jurisdictions recorded.</p>
+            )}
           </CardContent>
         </Card>
 
@@ -145,8 +213,8 @@ export function HierarchyViewPage() {
                       <p className="text-lg font-bold text-[#0F2340]">{selectedNode.projects ?? 0}</p>
                     </div>
                     <div className="rounded-md bg-slate-50 p-3">
-                      <p className="text-[10px] text-muted-foreground">Pending Work</p>
-                      <p className="text-lg font-bold text-amber-600">{selectedNode.pendingWork ?? 0}</p>
+                      <p className="text-[10px] text-muted-foreground">Needs Attention</p>
+                      <p className="text-lg font-bold text-amber-600">{selectedNode.attention ?? 0}</p>
                     </div>
                   </div>
 

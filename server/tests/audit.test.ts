@@ -100,4 +100,35 @@ describe("audit events", () => {
     const stillThere = await sql("SELECT id FROM audit_events WHERE id = $1", [sample[0].id]);
     expect(stillThere).toHaveLength(1);
   });
+
+  it("filters the trail by entity for the project detail page", async () => {
+    const projectCode = uniqueProjectCode();
+    const create = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: asActor(),
+      payload: {
+        projectCode,
+        projectName: "Entity Filter Probe",
+        requiringOrganizationId: NHAI_ORG_ID,
+        projectCategory: "infrastructure",
+        state: "Maharashtra",
+        district: "Pune",
+      },
+    });
+    expect(create.statusCode).toBe(201);
+    const projectId = create.json().id as string;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/audit?entityType=project&entityId=${projectId}&limit=50`,
+      headers: asActor(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.total).toBeGreaterThanOrEqual(1);
+    expect(body.items.length).toBeGreaterThanOrEqual(1);
+    expect(body.items.every((e: { entityId: string }) => e.entityId === projectId)).toBe(true);
+    expect(body.items.map((e: { action: string }) => e.action)).toContain("PROJECT_CREATED");
+  });
 });

@@ -85,4 +85,23 @@ describe("parcels API", () => {
     const res = await app.inject({ method: "GET", url: "/api/parcels" });
     expect(res.statusCode).toBe(401);
   });
+
+  it("filters parcels by project and returns geometry on request", async () => {
+    const projects = await app.inject({ method: "GET", url: "/api/projects?limit=200", headers: asActor() });
+    const project = projects
+      .json()
+      .items.find((p: { projectCode: string }) => p.projectCode === "MH/PUNE/NHAI/2025-26/042");
+    expect(project).toBeDefined();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/parcels?projectId=${project.id}&includeGeometry=true&limit=50`,
+      headers: asActor(),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.length).toBeGreaterThanOrEqual(2);
+    expect(body.items.every((p: { projectId: string }) => p.projectId === project.id)).toBe(true);
+    expect(body.items.some((p: { geometry: unknown }) => Array.isArray((p.geometry as { coordinates: unknown[] })?.coordinates))).toBe(true);
+  });
 });

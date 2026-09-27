@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { asActor, INDIA_JURISDICTION_ID, startApp, stopApp } from "./helpers.js";
+import { asActor, INDIA_JURISDICTION_ID, sql, startApp, stopApp } from "./helpers.js";
 
 describe("jurisdictions API", () => {
   let app: FastifyInstance;
@@ -33,6 +33,36 @@ describe("jurisdictions API", () => {
     expect(levels).toContain("village");
     expect(items.some((j) => j.name === "Pune District")).toBe(true);
     expect(items.some((j) => j.name === "Pargaon")).toBe(true);
+  });
+
+  it("counts projects and officials attached to each jurisdiction", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/jurisdictions?limit=100",
+      headers: asActor(),
+    });
+    expect(res.statusCode).toBe(200);
+    const items = res.json().items as Array<{ name: string; projectCount: number; officials: string[] }>;
+
+    // Regression: these correlated subqueries once rendered unqualified `"id"`,
+    // silently returning 0/null instead of the outer jurisdiction's id.
+    // Compare against an independent query so the assertion holds regardless of
+    // probe projects other test files may have attached to the same jurisdiction.
+    const expectedPune = await sql<{ n: string }>(
+      "SELECT count(*)::text AS n FROM projects WHERE jurisdiction_id = $1",
+      ["00000000-0000-4000-8000-000000000005"],
+    );
+    const pune = items.find((j) => j.name === "Pune District");
+    expect(pune?.projectCount).toBe(Number(expectedPune[0].n));
+    expect(pune!.projectCount).toBeGreaterThanOrEqual(2);
+    expect(pune?.officials).toEqual(["Dr. Suhas Diwase, IAS"]);
+
+    const haveli = items.find((j) => j.name === "Haveli Tehsil");
+    expect(haveli?.officials).toEqual(["Shri. M. Kamble", "Smt. Kavita Patil"]);
+
+    const chennai = items.find((j) => j.name === "Chennai District");
+    expect(chennai?.projectCount).toBe(0);
+    expect(chennai?.officials).toEqual([]);
   });
 
   it("returns a nested tree when tree=true", async () => {

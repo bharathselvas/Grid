@@ -25,11 +25,14 @@ const selection = {
   stateCode: jurisdictions.stateCode,
   districtCode: jurisdictions.districtCode,
   tehsilCode: jurisdictions.tehsilCode,
-  projectCount: sql<number>`(SELECT count(*)::int FROM projects WHERE projects.jurisdiction_id = ${jurisdictions.id})`,
+  // NOTE: qualify the outer table explicitly — `${jurisdictions.id}` renders as a bare
+  // `"id"` inside these subqueries, which Postgres resolves against the inner table,
+  // silently returning 0/null instead of correlating with the outer row.
+  projectCount: sql<number>`(SELECT count(*)::int FROM projects WHERE projects.jurisdiction_id = jurisdictions.id)`,
   officials: sql<string[] | null>`(
     SELECT json_agg(u.name ORDER BY u.name)
       FROM users u
-     WHERE u.jurisdiction_id = ${jurisdictions.id}
+     WHERE u.jurisdiction_id = jurisdictions.id
   )`,
   createdAt: jurisdictions.createdAt,
 };

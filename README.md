@@ -2,7 +2,7 @@
 
 **SIH 2026 · Problem Statement 26016 · Department of Land Resources (DoLR), Government of India**
 
-> **Current Status**: Frontend + real backend foundation. A Fastify/TypeScript API (`server/`) backed by PostgreSQL + PostGIS (Supabase-compatible) serves projects, parcels, jurisdictions, users, organizations, audit events, roles and workflow stages. Admin pages read live API data and fall back to the static demo dataset when the API is offline. Cadastral ingestion and external system integrations are still mocked.
+> **Current Status**: Frontend + real backend foundation. A Fastify/TypeScript API (`server/`) backed by PostgreSQL + PostGIS (Supabase-compatible) serves projects, parcels, jurisdictions, users, organizations, audit events, roles, workflow stages and workflow transitions. The core DoLR/National Admin pages (National Overview, National Monitoring, Project Detail, Risk & Delay Monitor, Hierarchy View) read **live API data only** and show an explicit error state with retry when the API is unreachable — they never fall back to demo data. Directory pages (Organizations, Users, Audit) keep a visible demo fallback when the API is offline. Cadastral ingestion and external system integrations are still mocked.
 
 ## 1. Overview
 
@@ -107,7 +107,7 @@ flowchart TD
     Repo --> Db
 ```
 
-> **Note**: The browser talks to the Fastify API over `/api` and `/health` (Vite proxy in development). Zustand stores still drive the role workspaces that have not yet been migrated; the three admin directory pages (Organizations, Users & Roles, Audit Trail) read live API data and fall back to the static demo dataset with a visible "Demo data — API offline" badge if the API is unreachable.
+> **Note**: The browser talks to the Fastify API over `/api` and `/health` (Vite proxy in development). Zustand stores still drive the role workspaces that have not yet been migrated. The core DoLR admin pages (National Overview, National Monitoring, Project Detail, Risk & Delay Monitor, Hierarchy View) read live API data only and render an explicit error state with retry if the API is unreachable; the three directory pages (Organizations, Users & Roles, Audit Trail) read live API data and fall back to the static demo dataset with a visible "Demo data — API offline" badge if the API is unreachable.
 
 ## 8. Technology Stack
 
@@ -214,17 +214,22 @@ Migrations are checksum-tracked in `schema_migrations`; editing an applied migra
 | Method | Path | Notes |
 | ------ | ---- | ----- |
 | GET | `/health` | Public. DB connectivity, PostGIS version, applied migrations. |
-| GET | `/api/projects` | Filters: `q`, `state`, `status`, `stage`, `limit`, `offset`. |
-| GET | `/api/projects/:id` | 404 for unknown id, 400 for malformed id. |
+| GET | `/api/projects` | Filters: `q`, `state`, `district`, `status`, `stage`, `ministry`, `risk`, `limit`, `offset`. |
+| GET | `/api/projects/:id` | 404 for unknown id, 400 for malformed id. Includes live stage/SLA/risk/delay fields. |
 | POST | `/api/projects` | Creates project + workflow instance + audit event in one transaction. |
-| GET | `/api/parcels` | Filters: `projectId`, `district`, `classificationStatus`, pagination. |
+| GET | `/api/admin/overview` | National KPIs + 17-stage pipeline + state rows, aggregated from the database. |
+| GET | `/api/admin/projects/facets` | Filter facets (states, ministries, stages, risks) with counts. |
+| GET | `/api/parcels` | Filters: `projectId`, `district`, `classificationStatus`, `includeGeometry`, pagination. |
 | GET | `/api/parcels/:id` | `includeGeometry=true` returns the GeoJSON polygon. |
 | GET | `/api/jurisdictions` | `tree=true` returns the nested national→village hierarchy. |
-| GET | `/api/jurisdictions/:id` | Single jurisdiction. |
+| GET | `/api/jurisdictions/:id` | Single jurisdiction (includes project counts + assigned officials). |
 | GET | `/api/users` | Filters: `q`, `roleId`, `status`, pagination. |
 | GET | `/api/organizations` | Filters: `q`, `orgType`, `status`, pagination. |
 | GET | `/api/roles` | The 11 canonical roles. |
 | GET | `/api/workflow/stages` | Canonical 17-stage lifecycle + owner roles + SLAs. |
+| GET | `/api/workflow/instances` | `entityType`+`entityId` → live instance + full stage history. |
+| POST | `/api/workflow/instances/:id/transitions` | Advance exactly one stage: 403 if the actor's role doesn't own the current stage, 409 for non-linear/invalid transitions, 400 for unknown stages; instance + entity stage + transition + audit written in one transaction. |
+| GET | `/api/documents` | Read-only document metadata (`entityType`+`entityId`). |
 | GET | `/api/audit` | Filters: `action`, `entityType`, `entityId`, `actorUserId`, pagination. |
 
 All `/api/*` routes require an actor; errors share one contract: `{ "error": { "code", "message", "details?" } }` with `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `500 INTERNAL_ERROR`.
@@ -331,7 +336,7 @@ Deployment configuration is not currently included. The application can be built
 
 ## 22. Error Handling
 
-UI errors are handled with standard React error boundaries and localized toast notifications. The API returns a single error contract (`{ error: { code, message, details } }` with 400/401/403/404/409/500), and the frontend client (`src/services/api/client.ts`) converts non-2xx responses and network failures into a typed `ApiError` — admin pages catch it and fall back to the demo dataset with a visible badge.
+UI errors are handled with standard React error boundaries and localized toast notifications. The API returns a single error contract (`{ error: { code, message, details } }` with 400/401/403/404/409/500), and the frontend client (`src/services/api/client.ts`) converts non-2xx responses and network failures into a typed `ApiError` — the core admin pages surface it as an explicit error state with a Retry action (no silent demo fallback), while the directory pages catch it and fall back to the demo dataset with a visible badge.
 
 ## 23. Observability
 
@@ -352,8 +357,9 @@ UI errors are handled with standard React error boundaries and localized toast n
 | **GIS Mapping** | ✅ Implemented | Leaflet integration with PostGIS-backed parcel geometry available via API. |
 | **Backend API** | ✅ Implemented (foundation) | Fastify + Drizzle; projects, parcels, jurisdictions, users, organizations, roles, workflow stages, audit. |
 | **Database** | ✅ Implemented (foundation) | PostgreSQL 16 + PostGIS 3.4, versioned migrations, deterministic seed, append-only audit. |
-| **Admin pages on live data** | ✅ Implemented | Organizations, Users & Roles, Audit Trail read the API with demo fallback. |
-| **Integration tests** | ✅ Implemented | Vitest against a real `bhoomisetu_test` database (20 tests). |
+| **Admin pages on live data** | ✅ Implemented | National Overview, Monitoring, Project Detail, Risk & Delay, Hierarchy are live-only (explicit error + retry, no demo fallback). Organizations, Users & Roles, Audit Trail read the API with demo fallback. |
+| **Workflow stage transitions** | ✅ Implemented | `POST /api/workflow/instances/:id/transitions` — RBAC (403), linear lifecycle (409), transactional instance+entity+audit writes. |
+| **Integration tests** | ✅ Implemented | Vitest against a real `bhoomisetu_test` database (47 tests). |
 | **PFMS / ULPIN / DILRMP** | 📋 Planned | UI elements exist; API integration pending. |
 | **Production authentication** | 📋 Planned | Development actor header in place; Supabase JWT next. |
 

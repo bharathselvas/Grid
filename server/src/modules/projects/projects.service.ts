@@ -39,6 +39,18 @@ export type ProjectDto = {
   createdByUser: string | null;
   createdAt: string;
   updatedAt: string;
+  /** when the project entered its current workflow stage */
+  stageEnteredAt: string;
+  /** statutory SLA (days) for the current stage */
+  stageSlaDays: number;
+  /** days elapsed in the current stage */
+  daysInStage: number;
+  /** derived risk level (see shared/workflow/risk.ts) */
+  risk: string;
+  /** live project overdue on its target date or past its stage SLA */
+  delayed: boolean;
+  /** most recent project/transition activity timestamp */
+  lastActivityAt: string;
   parcelCount: number;
 };
 
@@ -72,6 +84,12 @@ export function toProjectDto(row: ProjectListRow): ProjectDto {
     createdByUser: row.createdByUser,
     createdAt: asIso(row.createdAt) ?? "",
     updatedAt: asIso(row.updatedAt) ?? "",
+    stageEnteredAt: asIso(row.stageEnteredAt) ?? "",
+    stageSlaDays: Number(row.stageSlaDays),
+    daysInStage: Math.round(Number(row.daysInStage) * 10) / 10,
+    risk: row.risk,
+    delayed: row.delayed,
+    lastActivityAt: asIso(row.lastActivityAt) ?? "",
     parcelCount: row.parcelCount ?? 0,
   };
 }

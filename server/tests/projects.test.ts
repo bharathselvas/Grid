@@ -173,4 +173,78 @@ describe("projects API", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("VALIDATION_ERROR");
   });
+
+  it("paginates with limit/offset against a stable total", async () => {
+    const all = await app.inject({ method: "GET", url: "/api/projects?limit=200", headers: asActor() });
+    expect(all.statusCode).toBe(200);
+    const total = all.json().total as number;
+    expect(total).toBeGreaterThanOrEqual(5);
+
+    const page1 = await app.inject({ method: "GET", url: "/api/projects?limit=2&offset=0", headers: asActor() });
+    const page2 = await app.inject({ method: "GET", url: "/api/projects?limit=2&offset=2", headers: asActor() });
+    expect(page1.json().items).toHaveLength(Math.min(2, total));
+    expect(page2.json().items.length).toBeGreaterThan(0);
+    expect(page1.json().total).toBe(total);
+    expect(page2.json().total).toBe(total);
+
+    const ids1: string[] = page1.json().items.map((p: { id: string }) => p.id);
+    const ids2: string[] = page2.json().items.map((p: { id: string }) => p.id);
+    expect(ids1.filter((id) => ids2.includes(id))).toHaveLength(0);
+  });
+
+  it("filters server-side by ministry, search text and derived risk", async () => {
+    const ministry = "Ministry of Jal Shakti";
+    const byMinistry = await app.inject({
+      method: "GET",
+      url: `/api/projects?ministry=${encodeURIComponent(ministry)}`,
+      headers: asActor(),
+    });
+    expect(byMinistry.statusCode).toBe(200);
+    expect(byMinistry.json().items.length).toBeGreaterThanOrEqual(1);
+    expect(byMinistry.json().items.every((p: { ministry: string }) => p.ministry === ministry)).toBe(true);
+
+    const bySearch = await app.inject({
+      method: "GET",
+      url: `/api/projects?q=${encodeURIComponent("Ring Road")}`,
+      headers: asActor(),
+    });
+    expect(bySearch.json().items.length).toBeGreaterThanOrEqual(1);
+    expect(bySearch.json().items[0].projectCode).toBe("MH/PUNE/NHAI/2025-26/042");
+
+    // The seeded overdue project must be derivable as critical by the API.
+    const byRisk = await app.inject({ method: "GET", url: "/api/projects?risk=critical", headers: asActor() });
+    expect(byRisk.json().items.length).toBeGreaterThanOrEqual(1);
+    expect(byRisk.json().items.every((p: { risk: string }) => p.risk === "critical")).toBe(true);
+    expect(byRisk.json().items.map((p: { projectCode: string }) => p.projectCode)).toContain(
+      "MH/PUNE/WRD/2024-25/011",
+    );
+  });
+
+  it("returns live workflow timing and risk fields on list and detail", async () => {
+    const list = await app.inject({ method: "GET", url: "/api/projects?limit=200", headers: asActor() });
+    const seeded = list
+      .json()
+      .items.find((p: { projectCode: string }) => p.projectCode === "MH/PUNE/WRD/2024-25/011");
+    expect(seeded).toBeDefined();
+    expect(seeded.risk).toBe("critical");
+    expect(seeded.delayed).toBe(true);
+    expect(seeded.daysInStage).toBeGreaterThan(seeded.stageSlaDays);
+
+    const res = await app.inject({ method: "GET", url: `/api/projects/${seeded.id}`, headers: asActor() });
+    expect(res.statusCode).toBe(200);
+    const detail = res.json();
+    expect(detail.risk).toBe("critical");
+    expect(detail.delayed).toBe(true);
+    expect(detail.stageSlaDays).toBeGreaterThan(0);
+    expect(typeof detail.daysInStage).toBe("number");
+    expect(Number.isNaN(new Date(detail.lastActivityAt).getTime())).toBe(false);
+    expect(Number.isNaN(new Date(detail.stageEnteredAt).getTime())).toBe(false);
+
+    const completed = list
+      .json()
+      .items.find((p: { projectCode: string }) => p.projectCode === "MH/NAG/MADC/2023-24/007");
+    expect(completed.status).toBe("closed");
+    expect(completed.risk).toBe("on_track");
+    expect(completed.delayed).toBe(false);
+  });
 });
