@@ -13,17 +13,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ADMIN_AUDIT_TRAIL } from "@/features/admin/adminData";
+import { ADMIN_AUDIT_TRAIL, type AdminAuditEntry } from "@/features/admin/adminData";
+import { listAuditEvents, toAuditEntryRow, useApiData } from "@/services/api";
 import { formatDateTime, formatDate } from "@/lib/format";
 
 export function AuditTrailPage() {
   const [search, setSearch] = useState("");
   const [actorFilter, setActorFilter] = useState("all");
-  const [selectedEvent, setSelectedEvent] = useState<typeof ADMIN_AUDIT_TRAIL[0] | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<AdminAuditEntry | null>(null);
 
-  const actors = [...new Set(ADMIN_AUDIT_TRAIL.map((e) => e.actor))].sort();
+  const { data: auditEvents, source } = useApiData(
+    async () => (await listAuditEvents()).items.map(toAuditEntryRow),
+    ADMIN_AUDIT_TRAIL,
+  );
 
-  const filtered = ADMIN_AUDIT_TRAIL.filter((e) => {
+  const actors = [...new Set(auditEvents.map((e) => e.actor))].sort();
+
+  const filtered = auditEvents.filter((e) => {
     if (search && !e.action.toLowerCase().includes(search.toLowerCase()) && !e.project.toLowerCase().includes(search.toLowerCase())) return false;
     if (actorFilter !== "all" && e.actor !== actorFilter) return false;
     return true;
@@ -36,9 +42,16 @@ export function AuditTrailPage() {
           <h1 className="text-lg font-semibold tracking-tight text-[#0F2340]">System Audit Trail</h1>
           <p className="text-xs text-muted-foreground">Immutable log of all system actions — actor, state transition, justification</p>
         </div>
-        <Badge variant="secondary" className="text-[11px]">
-          <ScrollText className="h-3 w-3 mr-1" /> {ADMIN_AUDIT_TRAIL.length} events
-        </Badge>
+        <div className="flex items-center gap-2">
+          {source === "demo" && (
+            <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300 bg-amber-50">
+              Demo data — API offline
+            </Badge>
+          )}
+          <Badge variant="secondary" className="text-[11px]">
+            <ScrollText className="h-3 w-3 mr-1" /> {auditEvents.length} events
+          </Badge>
+        </div>
       </div>
 
       {/* Filters */}

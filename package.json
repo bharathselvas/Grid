@@ -9,7 +9,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "dev:api": "npm --prefix server run dev",
+    "api:migrate": "npm --prefix server run migrate",
+    "api:seed": "npm --prefix server run seed",
+    "api:typecheck": "npm --prefix server run typecheck",
+    "test:api": "npm --prefix server run test"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.1",

@@ -2,7 +2,7 @@
 
 **SIH 2026 · Problem Statement 26016 · Department of Land Resources (DoLR), Government of India**
 
-> **Current Status**: Frontend-first prototype (MVP). No backend is currently implemented; all data is served via realistic mocked state using Zustand stores.
+> **Current Status**: Frontend + real backend foundation. A Fastify/TypeScript API (`server/`) backed by PostgreSQL + PostGIS (Supabase-compatible) serves projects, parcels, jurisdictions, users, organizations, audit events, roles and workflow stages. Admin pages read live API data and fall back to the static demo dataset when the API is offline. Cadastral ingestion and external system integrations are still mocked.
 
 ## 1. Overview
 
@@ -33,20 +33,22 @@ Land acquisition in India under the RFCTLARR Act involves multiple stakeholders,
 
 ## 5. Key Features
 
-### ✅ Implemented (Frontend Mock MVP)
+### ✅ Implemented (Frontend + Backend Foundation)
 - **Role-Based Access Control (RBAC)**: 11 distinct user roles with jurisdiction-scoped workspaces.
 - **Hierarchical Workflows**: Shared state workflow engine advancing cases from proposal to closure.
 - **GIS Visualization**: Interactive map interfaces with parcel overlays (via Leaflet).
 - **Citizen Portal**: Dedicated interface for landowners to track notices, objections, and payments.
 - **Document Vault**: Mocked document repository for storing statutory notices and reports.
-- **Audit Trail**: Action logging for accountability.
+- **Audit Trail**: Action logging for accountability — now enforced append-only in PostgreSQL.
+- **Backend API**: Fastify + Drizzle modular monolith with real migrations, seed data and integration tests (`server/`).
 
 ### 🚧 In Progress / 📋 Planned (National Scale)
-- 📋 **Backend & Database**: Migration from Zustand mock stores to a robust relational database and API layer.
+- 📋 **Cadastral Data Ingestion**: Importing surveyed parcels from state land-record sources.
 - 📋 **DILRMP / ULPIN Integration**: Real-time fetching of ownership data using ULPIN.
 - 📋 **PFMS Integration**: Automated direct benefit transfer (DBT) for compensation.
 - 📋 **PM Gati Shakti Integration**: Ingesting alignment data for infrastructure projects.
 - 📋 **Bhoomi Rashi Integration**: Interoperability for MoRTH highway projects.
+- 📋 **Supabase Auth**: Replacing the development actor header with JWT-based login.
 
 ## 6. User Roles & Access Model
 
@@ -71,28 +73,41 @@ The system enforces a strict National → State → District → Tehsil → Vill
 ```mermaid
 flowchart TD
     User([Users / 11 Roles])
-    
+
     subgraph Frontend [React SPA (Vite)]
         Router[React Router]
         UI[Tailwind + shadcn/ui]
         Map[Leaflet / React-Leaflet]
+        ApiClient[src/services/api client]
     end
-    
+
     subgraph StateManagement [Zustand Stores]
         Session[Session/RBAC Store]
         Domain[Domain/Case Store]
-        MockDB[(Mock JSON Data)]
+        MockDB[(Static demo data)]
     end
-    
+
+    subgraph Backend [Fastify API (server/)]
+        Routes[Route layer]
+        Service[Service layer]
+        Repo[Repository layer]
+        Db[(PostgreSQL + PostGIS)]
+    end
+
     User --> Router
     Router --> UI
     UI --> Map
     UI <--> Session
     UI <--> Domain
     Domain <--> MockDB
+    UI --> ApiClient
+    ApiClient -->|/api, /health| Routes
+    Routes --> Service
+    Service --> Repo
+    Repo --> Db
 ```
 
-> **Note**: The current architecture is entirely client-side for the MVP. Future iterations will introduce an API Gateway, Authorization Middleware, and a PostgreSQL database.
+> **Note**: The browser talks to the Fastify API over `/api` and `/health` (Vite proxy in development). Zustand stores still drive the role workspaces that have not yet been migrated; the three admin directory pages (Organizations, Users & Roles, Audit Trail) read live API data and fall back to the static demo dataset with a visible "Demo data — API offline" badge if the API is unreachable.
 
 ## 8. Technology Stack
 
@@ -105,6 +120,10 @@ flowchart TD
 | **Mapping / GIS** | Leaflet, React-Leaflet | Geospatial rendering of land parcels. |
 | **Charts** | Recharts | Dashboards and analytics visualization. |
 | **Icons** | Lucide React | Standardized iconography. |
+| **API Server** | Fastify 5, TypeScript 5 | REST API for projects, parcels, jurisdictions, users, orgs, audit, workflow. |
+| **ORM / Migrations** | Drizzle ORM + SQL migrations | Typed queries, checksum-tracked schema migrations. |
+| **Database** | PostgreSQL 16 + PostGIS 3.4 (Supabase-compatible) | Relational storage with geometry columns for cadastral parcels. |
+| **Validation / Tests** | Zod 3, Vitest 3 | Request validation; real-database integration tests. |
 
 ## 9. Repository Structure
 
@@ -116,11 +135,19 @@ bhoomisetu/
 │   ├── features/      # Role-specific workspaces (e.g., admin, collector-cala, citizen)
 │   ├── lib/           # Utility functions (formatting, stages definition)
 │   ├── mocks/         # Mock data generators (cases, parcels, officers)
+│   ├── services/api/  # Typed HTTP client for the Fastify backend
 │   ├── stores/        # Zustand stores simulating the backend
 │   └── types/         # TypeScript domain models and RBAC definitions
-├── package.json       # Project dependencies
+├── server/
+│   ├── src/
+│   │   ├── db/        # Drizzle schema, migrations, seed, migration runner
+│   │   ├── modules/   # Route → service → repository per resource
+│   │   ├── plugins/   # Auth boundary, error contract
+│   │   └── shared/    # Roles, stages, validation, errors
+│   └── tests/         # Vitest integration tests against a real test database
+├── package.json       # Frontend dependencies
 ├── tailwind.config.ts # Tailwind CSS configuration
-└── vite.config.ts     # Vite bundler configuration
+└── vite.config.ts     # Vite bundler configuration + /api proxy
 ```
 
 ## 10. Core Modules
@@ -170,30 +197,71 @@ erDiagram
 
 ## 13. Database
 
-**Not currently implemented.**
-The application relies on in-memory mock data populated on initial load via `src/mocks/`. Mutations are handled by Zustand stores and persist only for the duration of the browser session.
+**Implemented** — PostgreSQL 16 + PostGIS 3.4, schema managed by versioned SQL migrations in `server/src/db/migrations/`.
+
+- `0001_init.sql` — creates the extension, drops any pre-existing *empty* un-versioned tables (refuses to drop non-empty ones), then creates `roles`, `jurisdictions`, `organizations`, `users`, `datasets`, `dataset_records`, `projects`, `parcels` (with `geometry(Geometry,4326)` + GiST index), `parcel_assignments`, `workflow_instances`, `workflow_transitions`, `documents`, `audit_events` (append-only trigger), `notifications`.
+- `0002_seed_roles.sql` — the canonical 11-role reference table.
+- `server/src/db/seed.ts` — deterministic development seed with fixed UUIDs (jurisdictions, organizations, users, 3 projects, 6 parcels, workflow instances, audit events).
+
+Migrations are checksum-tracked in `schema_migrations`; editing an applied migration is rejected.
+
+**Local database**: Docker container `bhoomi-setu-db` (`postgis/postgis:16-3.4`) at `localhost:5432`. Connection strings live in `.env` / `server/.env` (both gitignored) — see `.env.example`. A Supabase project uses the same schema; nothing in the codebase is Supabase-specific.
 
 ## 14. API Documentation
 
-**Not currently implemented.**
-All "API calls" are simulated as synchronous or mocked asynchronous actions directly against the Zustand stores.
+**Implemented** — Fastify + TypeScript under `server/src`, layered `route → service → repository → database`, validated with Zod.
+
+| Method | Path | Notes |
+| ------ | ---- | ----- |
+| GET | `/health` | Public. DB connectivity, PostGIS version, applied migrations. |
+| GET | `/api/projects` | Filters: `q`, `state`, `status`, `stage`, `limit`, `offset`. |
+| GET | `/api/projects/:id` | 404 for unknown id, 400 for malformed id. |
+| POST | `/api/projects` | Creates project + workflow instance + audit event in one transaction. |
+| GET | `/api/parcels` | Filters: `projectId`, `district`, `classificationStatus`, pagination. |
+| GET | `/api/parcels/:id` | `includeGeometry=true` returns the GeoJSON polygon. |
+| GET | `/api/jurisdictions` | `tree=true` returns the nested national→village hierarchy. |
+| GET | `/api/jurisdictions/:id` | Single jurisdiction. |
+| GET | `/api/users` | Filters: `q`, `roleId`, `status`, pagination. |
+| GET | `/api/organizations` | Filters: `q`, `orgType`, `status`, pagination. |
+| GET | `/api/roles` | The 11 canonical roles. |
+| GET | `/api/workflow/stages` | Canonical 17-stage lifecycle + owner roles + SLAs. |
+| GET | `/api/audit` | Filters: `action`, `entityType`, `entityId`, `actorUserId`, pagination. |
+
+All `/api/*` routes require an actor; errors share one contract: `{ "error": { "code", "message", "details?" } }` with `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `500 INTERNAL_ERROR`.
 
 ## 15. Authentication & Security
 
-**Status**: MOCKED
-- **Authentication**: Simulating login via a simple role switcher on the landing page for demonstration purposes. No passwords or tokens are currently required.
-- **Authorization**: RBAC is enforced on the frontend via `RoleRedirect.tsx` and jurisdiction filters in `rbac.ts`.
-- **Security Limitations**: Because this is a frontend-only MVP, all data and business logic are exposed to the client. A future backend implementation will enforce these checks securely.
+**Status**: development boundary in place; production auth planned.
+- **Authentication**: `AUTH_MODE=development-header` — the browser sends `x-actor-id` (a seeded user id; `VITE_DEV_ACTOR_ID`), the server loads that row and takes role / organization / jurisdiction **from the database**. Client-supplied claims are ignored. Next step is Supabase JWT → `users.auth_subject`.
+- **Authorization**: enforced server-side per route; frontend RBAC (`RoleRedirect.tsx`, `rbac.ts`) remains a UI concern only.
+- **Audit**: `audit_events` is append-only, enforced by a database trigger — updates and deletes raise an error.
+- **Secrets**: service-role keys and `DATABASE_URL` are server-side only (`server/.env`, gitignored). Vite only exposes `VITE_*` variables to the browser.
+- **Security Limitations**: role workspaces that still use Zustand stores are client-only; their data and logic are not yet enforced by the backend.
 
 ## 16. Configuration
 
-Environment variables are currently standard Vite defaults. No external secrets are required to run the prototype.
+Copy the examples and fill in real values (never commit either file — both `.env` and `server/.env` are gitignored):
+
+```bash
+cp .env.example .env          # backend + frontend variables
+cp server/.env.example server/.env   # backend-only alternative
+```
+
+| Variable | Where | Purpose |
+| -------- | ----- | ------- |
+| `DATABASE_URL` | backend | PostgreSQL/PostGIS connection string (required). |
+| `PORT`, `HOST`, `CORS_ORIGIN` | backend | API server bind + allowed origin (default `4000`, `0.0.0.0`, `http://localhost:3000`). |
+| `AUTH_MODE` | backend | `development-header` (default) or `disabled`. |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | backend | Reserved for Supabase Auth/Storage — server side only, never shipped to the browser. |
+| `VITE_API_BASE_URL` | frontend | API origin; empty means same origin (Vite proxy in dev). |
+| `VITE_DEV_ACTOR_ID` | frontend | Development actor id sent as `x-actor-id`. |
 
 ## 17. Local Development Setup
 
 **Prerequisites**:
-- Node.js (v18 or higher)
-- npm or pnpm
+- Node.js (v20 or higher)
+- npm
+- Docker (for the local PostgreSQL + PostGIS container)
 
 ```bash
 # Clone the repository
@@ -202,18 +270,34 @@ cd bhoomisetu
 
 # Install dependencies
 npm install
+npm --prefix server install
 
-# Start the development server
-npm run dev
+# Start PostgreSQL + PostGIS (local development)
+docker run -d --name bhoomi-setu-db -p 5432:5432 \
+  -e POSTGRES_USER=bhoomi -e POSTGRES_PASSWORD=bhoomi2026 -e POSTGRES_DB=bhoomisetu \
+  postgis/postgis:16-3.4
+
+# Configure environment
+cp .env.example .env
+cp server/.env.example server/.env
+
+# Create schema + seed reference/demo data
+npm --prefix server run migrate
+npm --prefix server run seed
 ```
 
 ## 18. Running the Application
+
+### Backend API
+```bash
+npm --prefix server run dev       # http://localhost:4000 (health at /health)
+```
 
 ### Frontend Development Server
 ```bash
 npm run dev
 ```
-The application will be available at `http://localhost:5173` (or the port specified by Vite).
+The application will be available at `http://localhost:3000`; `/api` and `/health` are proxied to the API server.
 
 ### Production Build
 ```bash
@@ -223,11 +307,14 @@ npm run preview
 
 ## 19. Testing
 
-The repository currently utilizes static analysis for correctness:
-- **Type Checking**: `npm run typecheck` (TypeScript)
-- **Linting**: `npm run lint` (Oxlint)
+- **Frontend**: `npm run typecheck` (TypeScript), `npm run lint` (Oxlint).
+- **Backend**: `npm --prefix server run typecheck`, plus real-database integration tests:
+  ```bash
+  npm --prefix server run test
+  ```
+  Tests bootstrap a separate `bhoomisetu_test` database (create → migrate → seed) and cover `/health`, project create/retrieve, validation and conflict errors, 404s, parcel geometry retrieval, the jurisdiction hierarchy, audit event creation and append-only enforcement. Nothing about the database is mocked.
 
-Unit and E2E testing frameworks (e.g., Vitest, Playwright) are planned but not yet implemented.
+Unit and E2E browser testing (Playwright) are planned but not yet implemented.
 
 ## 20. Deployment
 
@@ -244,12 +331,11 @@ Deployment configuration is not currently included. The application can be built
 
 ## 22. Error Handling
 
-Currently, errors are handled gracefully in the UI using standard React error boundaries and localized toast notifications. Since there is no backend, network errors are not simulated.
+UI errors are handled with standard React error boundaries and localized toast notifications. The API returns a single error contract (`{ error: { code, message, details } }` with 400/401/403/404/409/500), and the frontend client (`src/services/api/client.ts`) converts non-2xx responses and network failures into a typed `ApiError` — admin pages catch it and fall back to the demo dataset with a visible badge.
 
 ## 23. Observability
 
-**Not currently implemented.**
-Logging and tracing (e.g., Sentry, DataDog) are planned for the production release.
+**Partially implemented.** The API uses structured (pino) request logging and `/health` exposes database latency, PostGIS version and applied migrations. External tracing (Sentry, DataDog) is planned for the production release.
 
 ## 24. Development Conventions
 
@@ -263,23 +349,27 @@ Logging and tracing (e.g., Sentry, DataDog) are planned for the production relea
 | :--- | :--- | :--- |
 | **RBAC & Routing** | ✅ Implemented | Complete for all 11 roles. |
 | **Workspaces / UI** | ✅ Implemented | Responsive dashboards for all roles. |
-| **GIS Mapping** | ✅ Implemented | Leaflet integration with mock GeoJSON. |
-| **Backend API** | 🚧 Planned | Currently mocked with Zustand. |
-| **Database** | 🚧 Planned | Currently in-memory state. |
-| **PFMS / ULPIN** | 📋 Planned | UI elements exist; API integration pending. |
+| **GIS Mapping** | ✅ Implemented | Leaflet integration with PostGIS-backed parcel geometry available via API. |
+| **Backend API** | ✅ Implemented (foundation) | Fastify + Drizzle; projects, parcels, jurisdictions, users, organizations, roles, workflow stages, audit. |
+| **Database** | ✅ Implemented (foundation) | PostgreSQL 16 + PostGIS 3.4, versioned migrations, deterministic seed, append-only audit. |
+| **Admin pages on live data** | ✅ Implemented | Organizations, Users & Roles, Audit Trail read the API with demo fallback. |
+| **Integration tests** | ✅ Implemented | Vitest against a real `bhoomisetu_test` database (20 tests). |
+| **PFMS / ULPIN / DILRMP** | 📋 Planned | UI elements exist; API integration pending. |
+| **Production authentication** | 📋 Planned | Development actor header in place; Supabase JWT next. |
 
 ## 26. Known Limitations
 
-- **Volatile State**: Refreshing the browser will reset all case progression and uploaded documents to the initial mock state.
-- **Mocked Data**: All ULPINs, PFMS transaction IDs, and citizen details are fictional.
-- **Security**: RBAC is enforced purely on the client-side.
+- **Partial migration**: Role workspaces still read from Zustand stores; refreshing the browser resets case progression and uploaded documents for those screens. Directory data served by the API (projects, parcels, jurisdictions, users, organizations, audit) persists.
+- **Mocked integrations**: All ULPINs, PFMS transaction IDs, and citizen details are fictional; no external system is connected.
+- **Security**: `/api` routes resolve the actor's role/organization/jurisdiction server-side, but workspaces remain client-side until they are migrated to the API.
 - **Performance**: Large datasets (thousands of parcels) may cause UI lag due to client-side filtering.
 
 ## 27. Roadmap
 
 ### Near Term
-- Integrate a Node.js/Express backend with a PostgreSQL/PostGIS database.
-- Implement proper JWT-based authentication via e-Pramaan or similar government SSO.
+- Replace the development actor header with JWT-based authentication (Supabase Auth / e-Pramaan).
+- Migrate the remaining role workspaces and mutations from Zustand to the API.
+- Cadastral parcel ingestion pipeline with ULPIN identifiers.
 
 ### Medium Term
 - Establish real-time API integrations with DILRMP for fetching verified land records.

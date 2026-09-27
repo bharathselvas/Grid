@@ -1,5 +1,16 @@
 import type { LifecycleStage } from "@/types/domain";
 
+/**
+ * STATIC DEMO DATASET.
+ *
+ * These rows are illustrative UI fixtures only — they are not the system of
+ * record. The admin directory pages (Organizations, Users & Roles, Audit
+ * Trail) read live data from the Fastify API (`src/services/api`) and fall
+ * back to these constants only when the API is unreachable, flagging that
+ * state with a "Demo data — API offline" badge. Do not present this data as
+ * live or as a connected external system.
+ */
+
 // ── National KPI Data ──
 export type NationalKPI = {
   label: string;

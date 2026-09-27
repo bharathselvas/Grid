@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ADMIN_USERS } from "@/features/admin/adminData";
+import { ADMIN_USERS, type AdminUser } from "@/features/admin/adminData";
+import { listUsers, toAdminUserRow, useApiData } from "@/services/api";
 import { formatDate } from "@/lib/format";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "danger"> = {
@@ -28,19 +29,24 @@ export function UsersRolesPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [showProvision, setShowProvision] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<typeof ADMIN_USERS[0] | null>(null);
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
 
-  const roles = [...new Set(ADMIN_USERS.map((u) => u.role))].sort();
+  const { data: adminUsers, source } = useApiData(
+    async () => (await listUsers()).items.map(toAdminUserRow),
+    ADMIN_USERS,
+  );
 
-  const filtered = ADMIN_USERS.filter((u) => {
+  const roles = [...new Set(adminUsers.map((u) => u.role))].sort();
+
+  const filtered = adminUsers.filter((u) => {
     if (search && !u.name.toLowerCase().includes(search.toLowerCase()) && !u.organization.toLowerCase().includes(search.toLowerCase())) return false;
     if (roleFilter !== "all" && u.role !== roleFilter) return false;
     return true;
   });
 
-  const totalActive = ADMIN_USERS.filter((u) => u.status === "active").length;
-  const totalPending = ADMIN_USERS.filter((u) => u.status === "pending").length;
-  const totalSuspended = ADMIN_USERS.filter((u) => u.status === "suspended").length;
+  const totalActive = adminUsers.filter((u) => u.status === "active").length;
+  const totalPending = adminUsers.filter((u) => u.status === "pending").length;
+  const totalSuspended = adminUsers.filter((u) => u.status === "suspended").length;
 
   return (
     <div className="space-y-5">
@@ -49,9 +55,16 @@ export function UsersRolesPage() {
           <h1 className="text-lg font-semibold tracking-tight text-[#0F2340]">Users & Roles</h1>
           <p className="text-xs text-muted-foreground">Manage system users and hierarchical role assignments</p>
         </div>
-        <Button size="sm" onClick={() => setShowProvision(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Provision User
-        </Button>
+        <div className="flex items-center gap-2">
+          {source === "demo" && (
+            <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300 bg-amber-50">
+              Demo data — API offline
+            </Badge>
+          )}
+          <Button size="sm" onClick={() => setShowProvision(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Provision User
+          </Button>
+        </div>
       </div>
 
       {/* Summary */}
@@ -62,7 +75,7 @@ export function UsersRolesPage() {
               <p className="text-xs font-medium text-muted-foreground">Total Users</p>
               <Users className="h-4 w-4 text-slate-500" />
             </div>
-            <p className="mt-1 text-2xl font-bold text-[#0F2340]">{ADMIN_USERS.length}</p>
+            <p className="mt-1 text-2xl font-bold text-[#0F2340]">{adminUsers.length}</p>
           </CardContent>
         </Card>
         <Card>

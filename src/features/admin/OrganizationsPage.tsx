@@ -15,7 +15,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ORGANIZATIONS } from "@/features/admin/adminData";
+import { ORGANIZATIONS, type Organization } from "@/features/admin/adminData";
+import { listOrganizations, toOrganizationRow, useApiData } from "@/services/api";
 
 const TYPE_LABELS: Record<string, string> = {
   central_ministry: "Central Ministry",
@@ -33,16 +34,21 @@ const STATUS_VARIANT: Record<string, "success" | "warning" | "danger"> = {
 
 export function OrganizationsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
-  const [selectedOrg, setSelectedOrg] = useState<typeof ORGANIZATIONS[0] | null>(null);
+  const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
 
-  const filtered = ORGANIZATIONS.filter((o) => {
+  const { data: organizations, source } = useApiData(
+    async () => (await listOrganizations()).items.map(toOrganizationRow),
+    ORGANIZATIONS,
+  );
+
+  const filtered = organizations.filter((o) => {
     if (typeFilter !== "all" && o.type !== typeFilter) return false;
     return true;
   });
 
-  const totalActive = ORGANIZATIONS.filter((o) => o.status === "active").length;
-  const totalPending = ORGANIZATIONS.filter((o) => o.status === "pending").length;
-  const totalSuspended = ORGANIZATIONS.filter((o) => o.status === "suspended").length;
+  const totalActive = organizations.filter((o) => o.status === "active").length;
+  const totalPending = organizations.filter((o) => o.status === "pending").length;
+  const totalSuspended = organizations.filter((o) => o.status === "suspended").length;
 
   return (
     <div className="space-y-5">
@@ -51,6 +57,11 @@ export function OrganizationsPage() {
           <h1 className="text-lg font-semibold tracking-tight text-[#0F2340]">Organizations</h1>
           <p className="text-xs text-muted-foreground">Manage government organizations, agencies, and authorities</p>
         </div>
+        {source === "demo" && (
+          <Badge variant="outline" className="text-[10px] text-amber-700 border-amber-300 bg-amber-50">
+            Demo data — API offline
+          </Badge>
+        )}
       </div>
 
       {/* Summary */}
@@ -61,7 +72,7 @@ export function OrganizationsPage() {
               <p className="text-xs font-medium text-muted-foreground">Total Organizations</p>
               <Building2 className="h-4 w-4 text-slate-500" />
             </div>
-            <p className="mt-1 text-2xl font-bold text-[#0F2340]">{ORGANIZATIONS.length}</p>
+            <p className="mt-1 text-2xl font-bold text-[#0F2340]">{organizations.length}</p>
           </CardContent>
         </Card>
         <Card>
