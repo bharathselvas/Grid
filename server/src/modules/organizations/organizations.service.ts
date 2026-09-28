@@ -9,6 +9,7 @@ export type OrganizationDto = {
   orgType: string;
   parentId: string | null;
   parentOrg: string;
+  jurisdictionId: string | null;
   jurisdiction: string;
   projects: number;
   users: number;
@@ -28,7 +29,9 @@ export function toOrganizationDto(row: OrganizationListRow): OrganizationDto {
     orgType: row.orgType,
     parentId: row.parentId,
     parentOrg: row.parentName ?? "—",
-    jurisdiction: row.jurisdictionLabel || "—",
+    jurisdictionId: row.jurisdictionId,
+    // Authoritative: linked jurisdiction row first, legacy free-text label as fallback.
+    jurisdiction: row.jurisdictionName || row.jurisdictionLabel || "—",
     projects: row.projectCount ?? 0,
     users: row.userCount ?? 0,
     status: row.status,

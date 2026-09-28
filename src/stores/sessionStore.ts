@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { RoleId } from "@/types/rbac";
 import { ROLE_BY_ID } from "@/types/rbac";
+import { ACTOR_ID_BY_ROLE } from "@/services/api/actors";
+import { setApiActorId } from "@/services/api/client";
 
 export type SessionUser = {
   name: string;
@@ -38,17 +40,35 @@ function buildJurisdictionContext(roleId: RoleId, user: SessionUser): Jurisdicti
   return { roleId, scope: meta?.scope ?? "district", jurisdiction: user.jurisdiction, label: meta?.jurisdictionHint ?? user.jurisdiction };
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
-  roleId: DEFAULT_ROLE,
-  user: ROLE_DEFAULT_USER[DEFAULT_ROLE],
-  jurisdictionContext: buildJurisdictionContext(DEFAULT_ROLE, ROLE_DEFAULT_USER[DEFAULT_ROLE]),
-  switchRole: (roleId: RoleId) =>
-    set(() => {
-      const user = ROLE_DEFAULT_USER[roleId] ?? {
-        name: ROLE_BY_ID[roleId]?.label ?? roleId,
-        roleId,
-        jurisdiction: ROLE_BY_ID[roleId]?.jurisdictionHint ?? "",
-      };
-      return { roleId, user, jurisdictionContext: buildJurisdictionContext(roleId, user) };
-    }),
-}));
+/**
+ * Keep the development `x-actor-id` header in step with the selected session
+ * role, so the identity the UI shows is the identity the backend resolves
+ * (the server reads role/organization from the users row — the client can
+ * never assert a role). `VITE_DEV_ACTOR_ID` pins the actor for debugging and
+ * wins over role switching. Roles without a seeded user keep the current
+ * actor.
+ */
+function syncApiActor(roleId: RoleId): void {
+  if (import.meta.env.VITE_DEV_ACTOR_ID) return;
+  const actorId = ACTOR_ID_BY_ROLE[roleId];
+  if (actorId) setApiActorId(actorId);
+}
+
+export const useSessionStore = create<SessionState>((set) => {
+  syncApiActor(DEFAULT_ROLE);
+  return {
+    roleId: DEFAULT_ROLE,
+    user: ROLE_DEFAULT_USER[DEFAULT_ROLE],
+    jurisdictionContext: buildJurisdictionContext(DEFAULT_ROLE, ROLE_DEFAULT_USER[DEFAULT_ROLE]),
+    switchRole: (roleId: RoleId) =>
+      set(() => {
+        syncApiActor(roleId);
+        const user = ROLE_DEFAULT_USER[roleId] ?? {
+          name: ROLE_BY_ID[roleId]?.label ?? roleId,
+          roleId,
+          jurisdiction: ROLE_BY_ID[roleId]?.jurisdictionHint ?? "",
+        };
+        return { roleId, user, jurisdictionContext: buildJurisdictionContext(roleId, user) };
+      }),
+  };
+});

@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "../../db/client.js";
-import { organizations } from "../../db/schema.js";
+import { jurisdictions, organizations } from "../../db/schema.js";
 
 export type OrganizationListRow = {
   id: string;
@@ -10,6 +10,8 @@ export type OrganizationListRow = {
   orgType: string;
   parentId: string | null;
   parentName: string | null;
+  jurisdictionId: string | null;
+  jurisdictionName: string | null;
   jurisdictionLabel: string;
   status: string;
   projectCount: number;
@@ -38,6 +40,8 @@ export async function listOrganizations(
       orgType: organizations.orgType,
       parentId: organizations.parentId,
       parentName: parentOrg.name,
+      jurisdictionId: organizations.jurisdictionId,
+      jurisdictionName: jurisdictions.name,
       jurisdictionLabel: organizations.jurisdictionLabel,
       status: organizations.status,
       projectCount: sql<number>`(SELECT count(*)::int FROM projects p WHERE p.requiring_organization_id = ${organizations.id})`,
@@ -47,6 +51,7 @@ export async function listOrganizations(
     })
     .from(organizations)
     .leftJoin(parentOrg, eq(organizations.parentId, parentOrg.id))
+    .leftJoin(jurisdictions, eq(organizations.jurisdictionId, jurisdictions.id))
     .where(where)
     .orderBy(asc(organizations.name))
     .limit(filters.limit)

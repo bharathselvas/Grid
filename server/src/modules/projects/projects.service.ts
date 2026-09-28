@@ -13,7 +13,14 @@ import {
   listProjects,
   organizationExists,
   type ProjectListRow,
+  type ProjectOperationalOwner,
 } from "./projects.repo.js";
+import {
+  canAccessJurisdiction,
+  getActorContext,
+  jurisdictionAncestors,
+} from "../actorContext/actorContext.service.js";
+import { findActiveAssignment } from "../assignments/assignments.repo.js";
 
 export type ProjectDto = {
   id: string;
@@ -52,6 +59,13 @@ export type ProjectDto = {
   /** most recent project/transition activity timestamp */
   lastActivityAt: string;
   parcelCount: number;
+  /**
+   * Current operational owner — the ACTIVE assignment row for this project
+   * (person + role + organization + jurisdiction). Distinct from
+   * `requiringOrganizationId` (who requested the acquisition) and from
+   * monitoring authority (oversight roles can view without owning).
+   */
+  operationalOwner: ProjectOperationalOwner | null;
 };
 
 const asIso = (value: string | Date | null): string | null =>
@@ -91,6 +105,7 @@ export function toProjectDto(row: ProjectListRow): ProjectDto {
     delayed: row.delayed,
     lastActivityAt: asIso(row.lastActivityAt) ?? "",
     parcelCount: row.parcelCount ?? 0,
+    operationalOwner: row.operationalOwner ?? null,
   };
 }
 
@@ -105,10 +120,26 @@ export async function getProjects(query: ListProjectsQuery): Promise<{
   return { items: rows.map(toProjectDto), total, limit: query.limit, offset: query.offset };
 }
 
-export async function getProject(id: string): Promise<ProjectDto> {
+/**
+ * Single-project read with VIEW SCOPE enforcement: oversight roles (national /
+ * ministry) and anyone whose jurisdiction covers the project can read it; the
+ * project's operational assignee can always read their own work. This is read
+ * authority only — operational authority is checked separately at mutation
+ * time (workflow transitions, assignments).
+ */
+export async function getProject(id: string, actor: Actor): Promise<ProjectDto> {
   const db = getDb();
   const row = await findProjectById(db, id);
   if (!row) throw AppError.notFound(`Project ${id} not found.`);
+
+  const ctx = await getActorContext(actor.userId, db);
+  const chain = row.jurisdictionId ? await jurisdictionAncestors(db, row.jurisdictionId) : null;
+  const active = await findActiveAssignment(db, "project", id);
+  if (!canAccessJurisdiction(ctx, chain, active)) {
+    throw AppError.forbidden(
+      `Project ${row.projectCode} is outside the jurisdiction scope of ${ctx.user.name} (${ctx.role.label}).`,
+    );
+  }
   return toProjectDto(row);
 }
 

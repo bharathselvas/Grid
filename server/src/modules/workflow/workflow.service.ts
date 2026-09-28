@@ -9,6 +9,12 @@ import {
   STAGE_BY_ID,
   type StageId,
 } from "../../shared/workflow/stages.js";
+import {
+  canOperateOnJurisdiction,
+  getActorContext,
+  jurisdictionAncestors,
+} from "../actorContext/actorContext.service.js";
+import { findActiveAssignment, findAssignmentEntity } from "../assignments/assignments.repo.js";
 
 export type OpenWorkflowInput = {
   entityType: "project" | "parcel" | "case";
@@ -226,6 +232,23 @@ export async function transitionWorkflow(input: TransitionInput): Promise<Workfl
   if (!canRoleActOnStage(input.actor.roleId, instance.currentStage)) {
     throw AppError.forbidden(
       `Role "${input.actor.roleId}" does not own stage "${instance.currentStage}" and cannot advance it.`,
+    );
+  }
+
+  // Operational scope (Task #4): stage ownership is necessary but not
+  // sufficient — the actor must also be able to operate inside the entity's
+  // jurisdiction (role scope + jurisdiction + active assignment, resolved from
+  // the database via getActorContext). Oversight roles (national/ministry)
+  // monitor and act nationally; the assignee of the work always qualifies.
+  const scopedType = instance.entityType === "project" || instance.entityType === "parcel" ? instance.entityType : null;
+  const entity = scopedType ? await findAssignmentEntity(db, scopedType, instance.entityId) : null;
+  const entityChain = entity?.jurisdictionId ? await jurisdictionAncestors(db, entity.jurisdictionId) : null;
+  const activeAssignment = scopedType ? await findActiveAssignment(db, scopedType, instance.entityId) : null;
+  const ctx = await getActorContext(input.actor.userId, db);
+  const decision = canOperateOnJurisdiction(ctx, entityChain, activeAssignment);
+  if (!decision.allowed) {
+    throw AppError.forbidden(
+      `Actor "${ctx.user.name}" (${ctx.role.label}) cannot operate on this ${instance.entityType}: ${decision.reason}`,
     );
   }
 

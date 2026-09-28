@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
 import { getDb, getPool, closePool } from "./client.js";
 import {
+  assignments,
   auditEvents,
   datasets,
   jurisdictions,
@@ -106,22 +107,24 @@ export async function seed(): Promise<void> {
     ])
     .onConflictDoNothing();
 
-  // ── Organizations ─────────────────────────────────────────────────────────
+  // ── Organizations (each linked to its jurisdiction — authoritative FK) ────
   await db
     .insert(organizations)
     .values([
-      { id: ORG.dolr, name: "Department of Land Resources", code: "DOLR", orgType: "central_ministry", jurisdictionLabel: "National" },
-      { id: ORG.morth, name: "Ministry of Road Transport & Highways", code: "MORTH", orgType: "central_ministry", parentId: ORG.dolr, jurisdictionLabel: "National" },
-      { id: ORG.nhai, name: "National Highways Authority of India", code: "NHAI", orgType: "requiring_org", parentId: ORG.morth, jurisdictionLabel: "National" },
-      { id: ORG.madc, name: "Maharashtra Airport Development Co. Ltd.", code: "MADC", orgType: "implementing_agency", jurisdictionLabel: "Maharashtra" },
-      { id: ORG.collectoratePune, name: "Collectorate, Pune", code: "COL-PUNE", orgType: "district_auth", jurisdictionLabel: "Pune District" },
-      { id: ORG.wrdOdisha, name: "Water Resources Dept., Odisha", code: "WRD-OD", orgType: "state_dept", jurisdictionLabel: "Odisha" },
-      { id: ORG.revenueMh, name: "Revenue Dept., Maharashtra", code: "REV-MH", orgType: "state_dept", jurisdictionLabel: "Maharashtra" },
-      { id: ORG.wrdMaharashtra, name: "Water Resources Dept., Maharashtra", code: "WRD-MH", orgType: "state_dept", jurisdictionLabel: "Maharashtra" },
+      { id: ORG.dolr, name: "Department of Land Resources", code: "DOLR", orgType: "central_ministry", jurisdictionLabel: "National", jurisdictionId: JURIS.india },
+      { id: ORG.morth, name: "Ministry of Road Transport & Highways", code: "MORTH", orgType: "central_ministry", parentId: ORG.dolr, jurisdictionLabel: "National", jurisdictionId: JURIS.india },
+      { id: ORG.nhai, name: "National Highways Authority of India", code: "NHAI", orgType: "requiring_org", parentId: ORG.morth, jurisdictionLabel: "National", jurisdictionId: JURIS.india },
+      { id: ORG.madc, name: "Maharashtra Airport Development Co. Ltd.", code: "MADC", orgType: "implementing_agency", jurisdictionLabel: "Maharashtra", jurisdictionId: JURIS.maharashtra },
+      { id: ORG.collectoratePune, name: "Collectorate, Pune", code: "COL-PUNE", orgType: "district_auth", jurisdictionLabel: "Pune District", jurisdictionId: JURIS.pune },
+      { id: ORG.wrdOdisha, name: "Water Resources Dept., Odisha", code: "WRD-OD", orgType: "state_dept", jurisdictionLabel: "Odisha", jurisdictionId: JURIS.odisha },
+      { id: ORG.revenueMh, name: "Revenue Dept., Maharashtra", code: "REV-MH", orgType: "state_dept", jurisdictionLabel: "Maharashtra", jurisdictionId: JURIS.maharashtra },
+      { id: ORG.wrdMaharashtra, name: "Water Resources Dept., Maharashtra", code: "WRD-MH", orgType: "state_dept", jurisdictionLabel: "Maharashtra", jurisdictionId: JURIS.maharashtra },
     ])
     .onConflictDoNothing();
 
   // ── Users (roles resolved server-side from these rows) ────────────────────
+  // Each user carries an organizational context AND an explicit jurisdiction
+  // scope matching their role (national → state → district → tehsil → village).
   await db
     .insert(users)
     .values([
@@ -130,7 +133,7 @@ export async function seed(): Promise<void> {
       { id: USER.collector, name: "Dr. Suhas Diwase, IAS", email: "collector.pune@maharashtra.gov.in", designation: "District Collector / CALA", roleId: "collector_cala", organizationId: ORG.collectoratePune, jurisdictionId: JURIS.pune, status: "active" },
       { id: USER.requiringOrg, name: "Shri. A. Deshmukh", email: "a.deshmukh@nhai.org", designation: "CGM (T) NHAI-RO Pune", roleId: "requiring_org", organizationId: ORG.nhai, jurisdictionId: JURIS.india, status: "active" },
       { id: USER.tehsilSdo, name: "Smt. Kavita Patil", email: "sdo.haveli@maharashtra.gov.in", designation: "SDO, Haveli", roleId: "tehsil_sdo", organizationId: ORG.collectoratePune, jurisdictionId: JURIS.haveli, status: "active" },
-      { id: USER.fieldOfficer, name: "Shri. M. Kamble", email: "m.kamble@maharashtra.gov.in", designation: "Field Officer / VAO", roleId: "field_officer", organizationId: ORG.collectoratePune, jurisdictionId: JURIS.haveli, status: "active" },
+      { id: USER.fieldOfficer, name: "Shri. M. Kamble", email: "m.kamble@maharashtra.gov.in", designation: "Field Officer / VAO, Pargaon", roleId: "field_officer", organizationId: ORG.collectoratePune, jurisdictionId: JURIS.pargaon, status: "active" },
     ])
     .onConflictDoNothing();
 
@@ -460,6 +463,82 @@ export async function seed(): Promise<void> {
       })
       .onConflictDoNothing();
   }
+
+  // ── Operational ownership (assignments) ────────────────────────────────────
+  // Two REAL ownership rows, each with its matching audit event:
+  //  1. Ring Road project  → the Collector (keeps Task #3 demo advance working)
+  //  2. Parcel 78/3 (501)  → the village Field Officer (village scope)
+  // Pune Water Supply (…304) is intentionally left UNOWNED: it is the target
+  // of the Task #4 assignment demo (assign it through the UI/API and watch
+  // PROJECT_ASSIGNED land in the audit trail).
+  const assignmentSeedRows = [
+    {
+      id: id(901),
+      entityType: "project",
+      entityId: PROJECT.puneRingRoad,
+      assignedToUserId: USER.collector,
+      assignedRole: "collector_cala",
+      organizationId: ORG.collectoratePune,
+      jurisdictionId: JURIS.pune,
+      createdBy: USER.stateNodal,
+      action: "PROJECT_ASSIGNED" as const,
+      assignor: USER.stateNodal,
+      assignorRole: "state_nodal",
+    },
+    {
+      id: id(902),
+      entityType: "parcel",
+      entityId: id(501),
+      assignedToUserId: USER.fieldOfficer,
+      assignedRole: "field_officer",
+      organizationId: ORG.collectoratePune,
+      jurisdictionId: JURIS.pargaon,
+      createdBy: USER.collector,
+      action: "PARCEL_ASSIGNED" as const,
+      assignor: USER.collector,
+      assignorRole: "collector_cala",
+    },
+  ];
+
+  for (const row of assignmentSeedRows) {
+    await db
+      .insert(assignments)
+      .values({
+        id: row.id,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        assignedToUserId: row.assignedToUserId,
+        assignedRole: row.assignedRole,
+        organizationId: row.organizationId,
+        jurisdictionId: row.jurisdictionId,
+        status: "active",
+        createdBy: row.createdBy,
+        reason: "Development seed — operational ownership for the demo graph.",
+      })
+      .onConflictDoNothing();
+
+    await db
+      .insert(auditEvents)
+      .values({
+        id: id(auditSeq++),
+        actorUserId: row.assignor,
+        actorRole: row.assignorRole,
+        action: row.action,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        beforeState: null,
+        afterState: {
+          assignmentId: row.id,
+          assignedToUserId: row.assignedToUserId,
+          assignedRole: row.assignedRole,
+          organizationId: row.organizationId,
+          jurisdictionId: row.jurisdictionId,
+        },
+        reason: "Development seed — record created by `npm run seed`.",
+        ip: null,
+      })
+      .onConflictDoNothing();
+  }
 }
 
 async function main(): Promise<void> {
@@ -477,6 +556,7 @@ async function main(): Promise<void> {
       "workflow_transitions",
       "audit_events",
       "datasets",
+      "assignments",
     ];
     console.log("seed complete:");
     for (const table of tables) {

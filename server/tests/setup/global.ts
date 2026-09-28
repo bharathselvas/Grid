@@ -44,6 +44,7 @@ export default async function globalSetup(): Promise<void> {
   const domainTables = [
     "notifications",
     "audit_events",
+    "assignments",
     "documents",
     "parcel_assignments",
     "workflow_transitions",

@@ -4,6 +4,18 @@ import { jurisdictions, organizations, projects, users, workflowInstances } from
 import { daysInStageSql, isDelayedSql, riskSql, slaDaysSql } from "../../shared/workflow/risk.js";
 import type { ListProjectsQuery } from "./projects.schemas.js";
 
+export type ProjectOperationalOwner = {
+  userId: string;
+  name: string;
+  roleId: string;
+  roleLabel: string | null;
+  organizationId: string | null;
+  organization: string | null;
+  jurisdictionId: string | null;
+  jurisdiction: string | null;
+  assignedAt: string;
+};
+
 export type ProjectListRow = {
   id: string;
   projectCode: string;
@@ -35,6 +47,7 @@ export type ProjectListRow = {
   delayed: boolean;
   lastActivityAt: Date | string;
   parcelCount: number;
+  operationalOwner: ProjectOperationalOwner | null;
 };
 
 const projectWorkflowJoin = () =>
@@ -71,6 +84,37 @@ const selection = {
   delayed: isDelayedSql("projects", "workflow_instances"),
   lastActivityAt: sql<Date | string>`GREATEST(${projects}.updated_at, COALESCE((SELECT max(wt.created_at) FROM workflow_transitions wt WHERE wt.workflow_instance_id = ${workflowInstances}.id), ${projects}.created_at))`,
   parcelCount: sql<number>`(SELECT count(*)::int FROM parcels WHERE parcels.project_id = ${projects.id})`,
+  // Current operational owner (active assignment) — real ownership rows from
+  // the assignments table, never a client-derived or role-derived guess.
+  operationalOwner: sql<{
+    userId: string;
+    name: string;
+    roleId: string;
+    roleLabel: string | null;
+    organizationId: string | null;
+    organization: string | null;
+    jurisdictionId: string | null;
+    jurisdiction: string | null;
+    assignedAt: string;
+  } | null>`
+    (SELECT json_build_object(
+        'userId', a.assigned_to_user_id,
+        'name', au.name,
+        'roleId', a.assigned_role,
+        'roleLabel', ar.label,
+        'organizationId', a.organization_id,
+        'organization', ao.name,
+        'jurisdictionId', a.jurisdiction_id,
+        'jurisdiction', aj.name,
+        'assignedAt', a.assigned_at
+      )
+      FROM assignments a
+      JOIN users au ON au.id = a.assigned_to_user_id
+      LEFT JOIN roles ar ON ar.id = a.assigned_role
+      LEFT JOIN organizations ao ON ao.id = a.organization_id
+      LEFT JOIN jurisdictions aj ON aj.id = a.jurisdiction_id
+      WHERE a.entity_type = 'project' AND a.entity_id = ${projects.id} AND a.status = 'active'
+      LIMIT 1)`,
 };
 
 function baseQuery(db: Db) {

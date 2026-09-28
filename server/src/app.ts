@@ -1,7 +1,9 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import { env } from "./config/env.js";
+import { actorContextRoutes } from "./modules/actorContext/actorContext.routes.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
+import { assignmentRoutes } from "./modules/assignments/assignments.routes.js";
 import { auditRoutes } from "./modules/audit/audit.routes.js";
 import { documentRoutes } from "./modules/documents/documents.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
@@ -45,6 +47,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(userRoutes, { prefix: "/users" });
       await api.register(organizationRoutes, { prefix: "/organizations" });
       await api.register(workflowRoutes, { prefix: "/workflow" });
+      await api.register(assignmentRoutes, { prefix: "/assignments" });
+      await api.register(actorContextRoutes, { prefix: "/actor" });
       await api.register(auditRoutes, { prefix: "/audit" });
       await api.register(documentRoutes, { prefix: "/documents" });
       await api.register(roleRoutes, { prefix: "/roles" });

@@ -25,6 +25,7 @@ export type OrganizationDto = {
   orgType: string;
   parentId: string | null;
   parentOrg: string;
+  jurisdictionId: string | null;
   jurisdiction: string;
   projects: number;
   users: number;
@@ -114,6 +115,62 @@ export type ProjectDto = {
   /** most recent project/transition activity timestamp */
   lastActivityAt: string;
   parcelCount: number;
+  /**
+   * Current operational owner — the ACTIVE assignment row for this project
+   * (person + role + organization + jurisdiction), or null when unowned.
+   * Distinct from `requiringOrganizationId` and from monitoring authority.
+   */
+  operationalOwner: OperationalOwner | null;
+};
+
+/** Active ownership row as embedded in ProjectDto. */
+export type OperationalOwner = {
+  userId: string;
+  name: string;
+  roleId: string;
+  roleLabel: string | null;
+  organizationId: string | null;
+  organization: string | null;
+  jurisdictionId: string | null;
+  jurisdiction: string | null;
+  assignedAt: string;
+};
+
+// ── Work ownership (assignments) ─────────────────────────────────────────────
+
+export type AssignmentStatus = "active" | "released";
+
+export type AssignmentDto = {
+  id: string;
+  entityType: "project" | "parcel" | string;
+  entityId: string;
+  entityLabel: string | null;
+  assignedToUserId: string;
+  assignedToName: string | null;
+  assignedRole: string;
+  assignedRoleLabel: string | null;
+  organizationId: string | null;
+  organizationName: string | null;
+  jurisdictionId: string | null;
+  jurisdictionName: string | null;
+  jurisdictionLevel: string | null;
+  status: AssignmentStatus | string;
+  assignedAt: string;
+  releasedAt: string | null;
+  reason: string | null;
+  createdBy: string | null;
+  createdByName: string | null;
+  createdAt: string;
+};
+
+export type CreateAssignmentInput = {
+  entityType: "project" | "parcel";
+  entityId: string;
+  assignedToUserId: string;
+  /** cross-checks — the server resolves these from the target user's row */
+  organizationId?: string;
+  jurisdictionId?: string;
+  reason?: string;
 };
 
 // ── National admin (DoLR) aggregates ────────────────────────────────────────

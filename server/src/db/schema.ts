@@ -14,6 +14,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /**
  * PostGIS geometry column (SRID 4326). Values are handled as GeoJSON strings
@@ -65,6 +66,7 @@ export const organizations = pgTable(
     orgType: text("org_type").notNull(),
     parentId: uuid("parent_id").references((): AnyPgColumn => organizations.id, { onDelete: "set null" }),
     jurisdictionLabel: text("jurisdiction_label").notNull().default(""),
+    jurisdictionId: uuid("jurisdiction_id").references((): AnyPgColumn => jurisdictions.id, { onDelete: "set null" }),
     status: text("status").notNull().default("active"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -218,6 +220,50 @@ export const parcelAssignments = pgTable(
   ],
 );
 
+// ── Work assignments (project + parcel operational ownership) ────────────────
+/**
+ * Explicit "who owns this work, in which organization and jurisdiction, and
+ * why". Distinct from `parcel_assignments` (legacy due-date task rows): this is
+ * the authoritative ownership record for BOTH entity types, with an
+ * ACTIVE/RELEASED lifecycle. History rows are never deleted — released
+ * assignments remain for auditability. A partial unique index guarantees at
+ * most one ACTIVE assignment per entity.
+ */
+export const assignments = pgTable(
+  "assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    assignedToUserId: uuid("assigned_to_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    assignedRole: text("assigned_role")
+      .notNull()
+      .references(() => roles.id, { onDelete: "restrict" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+    jurisdictionId: uuid("jurisdiction_id").references(() => jurisdictions.id, { onDelete: "set null" }),
+    status: text("status").notNull().default("active"),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }).defaultNow().notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+    releasedBy: uuid("released_by").references(() => users.id, { onDelete: "set null" }),
+    reason: text("reason"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("assignments_one_active_per_entity")
+      .on(t.entityType, t.entityId)
+      .where(sql`status = 'active'`),
+    index("assignments_entity_idx").on(t.entityType, t.entityId),
+    index("assignments_user_idx").on(t.assignedToUserId),
+    index("assignments_org_idx").on(t.organizationId),
+    index("assignments_juris_idx").on(t.jurisdictionId),
+    index("assignments_status_idx").on(t.status),
+  ],
+);
+
 // ── Workflow ─────────────────────────────────────────────────────────────────
 export const workflowInstances = pgTable(
   "workflow_instances",
@@ -345,3 +391,4 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type Dataset = typeof datasets.$inferSelect;
 export type ParcelAssignment = typeof parcelAssignments.$inferSelect;
+export type Assignment = typeof assignments.$inferSelect;

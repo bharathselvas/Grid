@@ -14,8 +14,9 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/:id", async (request) => {
+    const actor = requireActor(request);
     const { id } = parseOrThrow(idParamsSchema, request.params);
-    return getProject(id);
+    return getProject(id, actor);
   });
 
   app.post("/", async (request, reply) => {

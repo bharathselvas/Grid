@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -11,24 +11,46 @@ import {
   Users,
   ScrollText,
   MessageSquareWarning,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ApiError,
+  advanceWorkflowStage,
+  createAssignment,
   getProject,
   getWorkflowInstance,
+  listAssignments,
   listAuditEvents,
   listDocuments,
   listParcels,
+  listUsers,
+  listWorkflowStages,
+  releaseAssignment,
   useRequiredApi,
 } from "@/services/api";
+import type { UserDto } from "@/services/api";
 import { ApiErrorState, ApiLoadingState } from "@/components/domain/ApiStates";
 import { stageShortLabel, formatDate } from "@/lib/format";
 import { stageProgress } from "@/lib/stages";
 import { StageStepper } from "@/components/domain/StageStepper";
+import { useSessionStore } from "@/stores/sessionStore";
+import { roleLabel, type RoleId } from "@/types/rbac";
 import type { LifecycleStage } from "@/types/domain";
 
 const RISK_VARIANT: Record<string, "danger" | "warning" | "info" | "success" | "secondary"> = {
@@ -48,6 +70,39 @@ const CLASSIFICATION_VARIANT: Record<string, "success" | "danger" | "warning" | 
 
 const isNotFound = (error: Error | null): boolean => error instanceof ApiError && error.status === 404;
 
+/**
+ * Ownership role sets — mirrors server `assignments.service.ts`. The UI uses
+ * them only to show/hide controls; every action is validated server-side.
+ */
+const ASSIGNOR_ROLES = ["national_admin", "state_nodal", "collector_cala", "tehsil_sdo"];
+const PROJECT_OWNER_ROLES = ["state_nodal", "collector_cala", "tehsil_sdo"];
+
+/**
+ * Map a failed transition to safe, user-facing copy. Backend messages are
+ * authored server-side (no stack traces); 403/404/5xx use fixed text.
+ * `refresh` marks conflicts where the local view may be stale (409/404).
+ */
+function transitionFailure(error: unknown): { message: string; refresh: boolean } {
+  if (error instanceof ApiError) {
+    if (error.status === 403) {
+      return { message: "You are not authorized to advance this workflow stage.", refresh: false };
+    }
+    if (error.status === 409) {
+      return {
+        message: error.message || "This workflow cannot be advanced from the current stage. Refresh the project and try again.",
+        refresh: true,
+      };
+    }
+    if (error.status === 400) {
+      return { message: error.message || "The transition request was invalid. Refresh and try again.", refresh: false };
+    }
+    if (error.status === 404) {
+      return { message: "Workflow instance not found. Refresh the project and try again.", refresh: true };
+    }
+  }
+  return { message: "Unable to advance the workflow right now. Please try again.", refresh: false };
+}
+
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [activeTab, setActiveTab] = useState("overview");
@@ -66,6 +121,30 @@ export function ProjectDetailPage() {
     () => listDocuments({ entityType: "project", entityId: projectId!, limit: 50 }),
     [projectId],
   );
+  // Canonical workflow definition from the backend — next stage + stage
+  // ownership are derived from this, never invented client-side.
+  const stageDefs = useRequiredApi(() => listWorkflowStages(), []);
+  const sessionRole = useSessionStore((s) => s.roleId);
+  const sessionUser = useSessionStore((s) => s.user);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // Synchronous guard: React state batches, so a double-click inside one task
+  // could slip past `submitting`. A ref flips immediately — at most one
+  // transition request is ever in flight.
+  const advanceInFlight = useRef(false);
+  const [actionError, setActionError] = useState<{ message: string; refresh: boolean } | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // ── Operational ownership (Task #4) ────────────────────────────────────────
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignTarget, setAssignTarget] = useState("");
+  const [assignReason, setAssignReason] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const [ownershipMessage, setOwnershipMessage] = useState<string | null>(null);
+  const [targetUsers, setTargetUsers] = useState<UserDto[] | null>(null);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [releaseConfirm, setReleaseConfirm] = useState(false);
 
   if (detail.error && isNotFound(detail.error)) {
     return (
@@ -113,8 +192,279 @@ export function ProjectDetailPage() {
   const projectAudit = audit.data?.items ?? [];
   const budget = project.budgetCr !== null ? `₹${project.budgetCr.toLocaleString("en-IN")} Cr` : "—";
 
+  // ── Advance Stage derivation — backend workflow definition is authoritative ──
+  const defs = stageDefs.data?.stages ?? [];
+  const instance = workflow.data;
+  const currentDef = instance ? defs.find((s) => s.id === instance.currentStage) : undefined;
+  const nextDef = currentDef ? defs.find((s) => s.order === currentDef.order + 1) : undefined;
+  const ownerLabels = currentDef ? currentDef.ownerRoles.map((r) => roleLabel(r as RoleId)).join(", ") : "—";
+  const workflowComplete = instance?.status === "completed" || (!!currentDef && defs.length > 0 && !nextDef);
+  const ownsCurrentStage = !!currentDef && currentDef.ownerRoles.includes(sessionRole);
+  const canAdvance =
+    !!instance &&
+    !!currentDef &&
+    !!nextDef &&
+    instance.status === "active" &&
+    ownsCurrentStage &&
+    !stageDefs.loading &&
+    !workflow.loading &&
+    !submitting;
+
+  const refreshProjectData = () => {
+    detail.reload();
+    workflow.reload();
+    audit.reload();
+  };
+
+  const canAssign = ASSIGNOR_ROLES.includes(sessionRole);
+
+  const openAssign = async () => {
+    setAssignError(null);
+    setAssignOpen(true);
+    if (targetUsers) return;
+    setTargetsLoading(true);
+    try {
+      const res = await listUsers({ status: "active", limit: 200 });
+      setTargetUsers(res.items.filter((u) => PROJECT_OWNER_ROLES.includes(u.roleId)));
+    } catch {
+      setAssignError("Unable to load eligible users. Close and reopen the dialog to retry.");
+    } finally {
+      setTargetsLoading(false);
+    }
+  };
+
+  const runAssign = async () => {
+    if (!assignTarget || assigning) return;
+    setAssigning(true);
+    setAssignError(null);
+    try {
+      const created = await createAssignment({
+        entityType: "project",
+        entityId: project.id,
+        assignedToUserId: assignTarget,
+        reason: assignReason.trim() || undefined,
+      });
+      setAssignOpen(false);
+      setAssignTarget("");
+      setAssignReason("");
+      setOwnershipMessage(
+        `Operational ownership assigned to ${created.assignedToName} (${created.assignedRoleLabel}) — assignment row and audit event committed together.`,
+      );
+      detail.reload();
+    } catch (error) {
+      setAssignError(
+        error instanceof ApiError ? error.message : "Unable to assign ownership right now. Please try again.",
+      );
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const runRelease = async () => {
+    if (assigning) return;
+    setAssigning(true);
+    setAssignError(null);
+    try {
+      const active = await listAssignments({
+        entityType: "project",
+        entityId: project.id,
+        status: "active",
+        limit: 1,
+      });
+      const row = active.items[0];
+      if (!row) {
+        setReleaseConfirm(false);
+        detail.reload();
+        return;
+      }
+      await releaseAssignment(row.id, "Operational ownership released from the project detail page.");
+      setReleaseConfirm(false);
+      setOwnershipMessage(
+        `Operational ownership released — ${row.assignedToName} no longer owns this project. The history is preserved in the audit trail.`,
+      );
+      detail.reload();
+    } catch (error) {
+      setAssignError(
+        error instanceof ApiError ? error.message : "Unable to release ownership right now. Please try again.",
+      );
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const runAdvance = async () => {
+    if (advanceInFlight.current || submitting || !instance || !nextDef) return;
+    advanceInFlight.current = true;
+    setSubmitting(true);
+    setActionError(null);
+    try {
+      await advanceWorkflowStage(instance.id, { toStage: nextDef.id });
+      setConfirmOpen(false);
+      setSuccessMessage(
+        `Stage advanced to ${nextDef.label}. Project record, stage history and audit trail reloaded from the database.`,
+      );
+      refreshProjectData();
+    } catch (error) {
+      setActionError(transitionFailure(error));
+    } finally {
+      advanceInFlight.current = false;
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
+      {/* Advance stage confirmation — statutory transitions are never one-click */}
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (submitting) return;
+          setConfirmOpen(open);
+          if (!open) setActionError(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Advance Workflow Stage</DialogTitle>
+            <DialogDescription>
+              <span className="block space-y-1.5">
+                <span className="block text-sm text-slate-700">
+                  Current stage: <span className="font-medium">{currentDef?.label ?? stageShortLabel(stage)}</span>
+                </span>
+                <span className="block text-sm text-slate-700">
+                  Next stage: <span className="font-medium">{nextDef?.label ?? "—"}</span>
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  This will move the project workflow forward and create an auditable workflow transition.
+                </span>
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          {actionError && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-[#B42318]" role="alert">
+              {actionError.message}
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:justify-end">
+            {actionError?.refresh && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={submitting}
+                onClick={() => {
+                  setConfirmOpen(false);
+                  setActionError(null);
+                  refreshProjectData();
+                }}
+              >
+                Refresh data
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={submitting}
+              onClick={() => {
+                setConfirmOpen(false);
+                setActionError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" disabled={submitting} onClick={runAdvance}>
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Advancing…
+                </>
+              ) : (
+                "Advance Stage"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign operational ownership — assignment + audit commit server-side */}
+      <Dialog
+        open={assignOpen}
+        onOpenChange={(open) => {
+          if (assigning) return;
+          setAssignOpen(open);
+          if (!open) setAssignError(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Operational Ownership</DialogTitle>
+            <DialogDescription>
+              The assignment row and its audit event are written in one transaction. Organization and
+              jurisdiction are resolved from the target user&apos;s database record, not from this form.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Eligible officer</Label>
+              <Select value={assignTarget} onValueChange={setAssignTarget}>
+                <SelectTrigger className="h-9 text-sm mt-1">
+                  <SelectValue
+                    placeholder={
+                      targetsLoading ? "Loading eligible users…" : "Select a state nodal / collector / SDO"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {targetUsers?.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name} — {u.role} · {u.jurisdiction}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {targetUsers && targetUsers.length === 0 && !targetsLoading && (
+                <p className="text-xs text-muted-foreground mt-1">No eligible officers are available.</p>
+              )}
+            </div>
+            <div>
+              <Label className="text-xs">Reason (optional)</Label>
+              <Input
+                placeholder="e.g. Collector assumes ownership before the hearing"
+                className="h-9 text-sm mt-1"
+                value={assignReason}
+                onChange={(e) => setAssignReason(e.target.value)}
+                maxLength={500}
+              />
+            </div>
+            {assignError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-[#B42318]" role="alert">
+                {assignError}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={assigning}
+              onClick={() => {
+                setAssignOpen(false);
+                setAssignError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" disabled={assigning || !assignTarget || targetsLoading} onClick={runAssign}>
+              {assigning ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Assigning…
+                </>
+              ) : (
+                "Assign Owner"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Back link */}
       <Button asChild variant="ghost" size="sm">
         <Link to="/app/admin/monitoring"><ArrowLeft className="h-4 w-4 mr-1" /> Back to Monitoring</Link>
@@ -186,6 +536,114 @@ export function ProjectDetailPage() {
                   <div className="rounded-md bg-slate-50 p-3 text-center"><p className="text-2xl font-bold text-[#B42318]">{project.risk === "critical" || project.risk === "high" ? "Yes" : "No"}</p><p className="text-[11px] text-muted-foreground">At Risk</p></div>
                   <div className="rounded-md bg-slate-50 p-3 text-center"><p className="text-2xl font-bold text-[#0F2340]">{project.budgetCr !== null ? project.budgetCr.toLocaleString("en-IN") : "—"}</p><p className="text-[11px] text-muted-foreground">Budget (₹ Cr)</p></div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Responsibility & operational ownership — real assignment rows (Task #4) */}
+            <Card className="md:col-span-2">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Responsibility &amp; Ownership</CardTitle>
+                {project.operationalOwner ? (
+                  <Badge variant="success" className="text-[10px]">Operational owner assigned</Badge>
+                ) : (
+                  <Badge variant="warning" className="text-[10px]">No operational owner</Badge>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Land required by</span>
+                    <span className="font-medium text-right">{project.requiringOrganizationName ?? "—"}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Work jurisdiction</span>
+                    <span className="font-medium text-right">
+                      {project.jurisdictionName ?? `${project.district}, ${project.state}`}
+                    </span>
+                  </div>
+                </div>
+
+                {project.operationalOwner ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Operational owner
+                    </p>
+                    <p className="text-sm font-medium text-slate-800">
+                      {project.operationalOwner.name}
+                      <span className="font-normal text-muted-foreground"> — {project.operationalOwner.roleLabel}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {project.operationalOwner.organization ?? "—"} · {project.operationalOwner.jurisdiction ?? "—"} ·
+                      assigned {formatDate(project.operationalOwner.assignedAt)}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-dashed px-3 py-2.5">
+                    <p className="text-sm font-medium text-slate-700">No operational owner yet</p>
+                    <p className="text-xs text-muted-foreground">
+                      Monitoring is still available to oversight roles — assign an officer to make ownership
+                      explicit in the audit trail.
+                    </p>
+                  </div>
+                )}
+
+                {ownershipMessage && (
+                  <div
+                    className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"
+                    role="status"
+                  >
+                    {ownershipMessage}
+                  </div>
+                )}
+                {assignError && !assignOpen && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-[#B42318]" role="alert">
+                    {assignError}
+                  </div>
+                )}
+
+                {canAssign ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!project.operationalOwner ? (
+                      <Button size="sm" onClick={openAssign} disabled={targetsLoading && assignOpen}>
+                        <Users className="h-4 w-4 mr-1" /> Assign owner…
+                      </Button>
+                    ) : releaseConfirm ? (
+                      <>
+                        <Button variant="outline" size="sm" disabled={assigning} onClick={() => setReleaseConfirm(false)}>
+                          Cancel
+                        </Button>
+                        <Button size="sm" disabled={assigning} onClick={runRelease}>
+                          {assigning ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" /> Releasing…
+                            </>
+                          ) : (
+                            "Confirm release"
+                          )}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setReleaseConfirm(true);
+                          setAssignError(null);
+                        }}
+                      >
+                        Release ownership
+                      </Button>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      Assignors: National Admin, State Nodal, Collector/CALA, Tehsil SDO — enforced server-side.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Your role cannot change operational ownership — ask an assigning authority (National Admin,
+                    State Nodal, Collector/CALA or Tehsil SDO).
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -266,7 +724,66 @@ export function ProjectDetailPage() {
                   <span>Status: <span className="font-medium text-slate-700 capitalize">{workflow.data.status}</span></span>
                   <span>Owner role: <span className="font-medium text-slate-700">{workflow.data.ownerRoleLabel ?? "—"}</span></span>
                   <span>Stage entered: <span className="font-medium text-slate-700">{formatDate(workflow.data.startedAt)}</span></span>
+                  <span>SLA: <span className="font-medium text-slate-700">{project.stageSlaDays}d</span></span>
+                  <span>Days in stage: <span className="font-medium text-slate-700">{Math.round(project.daysInStage)}d</span></span>
                 </div>
+
+                {successMessage && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800" role="status">
+                    {successMessage}
+                  </div>
+                )}
+
+                {/* Advance Stage action — validated by the backend, never locally */}
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-slate-50 px-3 py-2.5">
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Next Stage</p>
+                    {stageDefs.error ? (
+                      <p className="text-xs text-[#B42318]">
+                        Workflow definition unavailable — cannot determine the next stage.{" "}
+                        <button type="button" className="underline" onClick={stageDefs.reload}>
+                          Retry
+                        </button>
+                      </p>
+                    ) : nextDef ? (
+                      <p className="text-sm font-medium text-[#0F2340]">
+                        {nextDef.label}
+                        <span className="ml-2 text-[11px] font-normal text-muted-foreground">SLA {nextDef.slaDays}d</span>
+                      </p>
+                    ) : (
+                      <p className="text-sm font-medium text-slate-500">—</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      Responsible: {ownerLabels} · Current actor: {sessionUser.name} ({roleLabel(sessionRole)})
+                    </p>
+                  </div>
+                  <div>
+                    {workflowComplete ? (
+                      <Badge variant="success" className="gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Workflow Complete
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        disabled={!canAdvance}
+                        onClick={() => {
+                          setActionError(null);
+                          setSuccessMessage(null);
+                          setConfirmOpen(true);
+                        }}
+                      >
+                        {nextDef ? `Advance to ${nextDef.shortLabel}` : "Advance Stage"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {!workflowComplete && instance && nextDef && !ownsCurrentStage && (
+                  <p className="text-xs text-muted-foreground">
+                    Only {ownerLabels} can advance the current stage — your session role ({roleLabel(sessionRole)}) is not
+                    an owner. The backend rejects unauthorized transitions as well.
+                  </p>
+                )}
+
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>

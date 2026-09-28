@@ -1,9 +1,11 @@
 export { ApiError, apiRequest, getApiActorId, setApiActorId } from "./client";
 export type { ApiRequestOptions, Paginated } from "./client";
+export { ACTOR_ID_BY_ROLE } from "./actors";
 
 export { getNationalOverview, getProjectFacets } from "./admin";
 export { listOrganizations } from "./organizations";
-export { listUsers } from "./users";
+export { createUser, listUsers } from "./users";
+export { createAssignment, getAssignment, listAssignments, releaseAssignment } from "./assignments";
 export { listAuditEvents } from "./audit";
 export { createProject, getProject, listProjects } from "./projects";
 export type { CreateProjectInput } from "./projects";

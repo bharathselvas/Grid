@@ -16,7 +16,17 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { ADMIN_USERS, type AdminUser } from "@/features/admin/adminData";
-import { listUsers, toAdminUserRow, useApiData } from "@/services/api";
+import {
+  ApiError,
+  createUser,
+  listJurisdictions,
+  listOrganizations,
+  listRoles,
+  listUsers,
+  toAdminUserRow,
+  useApiData,
+} from "@/services/api";
+import type { JurisdictionDto, OrganizationDto, RoleDto } from "@/services/api";
 import { formatDate } from "@/lib/format";
 
 const STATUS_VARIANT: Record<string, "success" | "warning" | "danger"> = {
@@ -31,10 +41,92 @@ export function UsersRolesPage() {
   const [showProvision, setShowProvision] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
 
-  const { data: adminUsers, source } = useApiData(
+  // ── Provisioning (Task #4: real POST /api/users, validated server-side) ──
+  const emptyForm = {
+    name: "",
+    email: "",
+    designation: "",
+    roleId: "",
+    organizationId: "",
+    jurisdictionId: "",
+    status: "active",
+  };
+  const [provisionForm, setProvisionForm] = useState(emptyForm);
+  const [referenceData, setReferenceData] = useState<{
+    roles: RoleDto[];
+    organizations: OrganizationDto[];
+    jurisdictions: JurisdictionDto[];
+  } | null>(null);
+  const [referenceLoading, setReferenceLoading] = useState(false);
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [provisioned, setProvisioned] = useState<string | null>(null);
+  const [extraUsers, setExtraUsers] = useState<AdminUser[]>([]);
+
+  const { data: baseUsers, source } = useApiData(
     async () => (await listUsers()).items.map(toAdminUserRow),
     ADMIN_USERS,
   );
+  // Newly provisioned users join the list immediately (their rows are live).
+  const adminUsers = extraUsers.length
+    ? [...extraUsers, ...baseUsers.filter((b) => !extraUsers.some((e) => e.id === b.id))]
+    : baseUsers;
+
+  const openProvision = async () => {
+    setProvisionError(null);
+    setShowProvision(true);
+    if (referenceData || referenceLoading) return;
+    setReferenceLoading(true);
+    try {
+      const [rolesRes, orgsRes, jurisdictionsRes] = await Promise.all([
+        listRoles(),
+        listOrganizations(),
+        listJurisdictions(),
+      ]);
+      setReferenceData({
+        roles: rolesRes.items,
+        organizations: orgsRes.items.filter((o) => o.status === "active"),
+        jurisdictions: jurisdictionsRes.items,
+      });
+    } catch {
+      setProvisionError("Unable to load roles, organizations and jurisdictions from the API. Close and reopen to retry.");
+    } finally {
+      setReferenceLoading(false);
+    }
+  };
+
+  const runProvision = async () => {
+    const f = provisionForm;
+    if (!f.name.trim() || !f.email.trim() || !f.roleId || !f.organizationId || !f.jurisdictionId) {
+      setProvisionError("Name, email, role, organization and jurisdiction are all required.");
+      return;
+    }
+    setProvisioning(true);
+    setProvisionError(null);
+    try {
+      const user = await createUser({
+        name: f.name.trim(),
+        email: f.email.trim(),
+        designation: f.designation.trim() || undefined,
+        roleId: f.roleId,
+        organizationId: f.organizationId,
+        jurisdictionId: f.jurisdictionId,
+        status: f.status as "active" | "pending" | "suspended",
+      });
+      setExtraUsers((prev) => [toAdminUserRow(user), ...prev]);
+      setShowProvision(false);
+      setProvisionForm({ ...emptyForm });
+      setProvisioned(
+        `${user.name} provisioned — user row, role/organization/jurisdiction links and the USER_PROVISIONED audit event were written together.`,
+      );
+    } catch (error) {
+      setProvisionError(
+        error instanceof ApiError ? error.message : "Unable to provision the user right now. Please try again.",
+      );
+    } finally {
+      setProvisioning(false);
+    }
+  };
 
   const roles = [...new Set(adminUsers.map((u) => u.role))].sort();
 
@@ -61,11 +153,23 @@ export function UsersRolesPage() {
               Demo data — API offline
             </Badge>
           )}
-          <Button size="sm" onClick={() => setShowProvision(true)}>
+          <Button size="sm" onClick={openProvision}>
             <Plus className="h-4 w-4 mr-1" /> Provision User
           </Button>
         </div>
       </div>
+
+      {provisioned && (
+        <div
+          className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 flex items-start justify-between gap-3"
+          role="status"
+        >
+          <span>{provisioned}</span>
+          <button type="button" className="underline text-[11px] shrink-0" onClick={() => setProvisioned(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -175,8 +279,15 @@ export function UsersRolesPage() {
         </CardContent>
       </Card>
 
-      {/* Provision User Dialog */}
-      <Dialog open={showProvision} onOpenChange={setShowProvision}>
+      {/* Provision User Dialog — POST /api/users; every reference row is validated server-side */}
+      <Dialog
+        open={showProvision}
+        onOpenChange={(open) => {
+          if (provisioning) return;
+          setShowProvision(open);
+          if (!open) setProvisionError(null);
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-sm">Provision New User</DialogTitle>
@@ -184,72 +295,131 @@ export function UsersRolesPage() {
           <div className="space-y-4">
             <div>
               <Label className="text-xs">Name</Label>
-              <Input placeholder="e.g. Shri. A. Kumar, IAS" className="h-9 text-sm mt-1" />
+              <Input
+                placeholder="e.g. Shri. A. Kumar, IAS"
+                className="h-9 text-sm mt-1"
+                value={provisionForm.name}
+                onChange={(e) => setProvisionForm((f) => ({ ...f, name: e.target.value }))}
+              />
             </div>
             <div>
               <Label className="text-xs">Email</Label>
-              <Input placeholder="e.g. a.kumar@gov.in" className="h-9 text-sm mt-1" />
+              <Input
+                placeholder="e.g. a.kumar@gov.in"
+                className="h-9 text-sm mt-1"
+                value={provisionForm.email}
+                onChange={(e) => setProvisionForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Designation (optional)</Label>
+              <Input
+                placeholder="e.g. Tehsildar, Haveli"
+                className="h-9 text-sm mt-1"
+                value={provisionForm.designation}
+                onChange={(e) => setProvisionForm((f) => ({ ...f, designation: e.target.value }))}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Organization</Label>
-                <Select>
+                <Select
+                  value={provisionForm.organizationId}
+                  onValueChange={(v) => setProvisionForm((f) => ({ ...f, organizationId: v }))}
+                >
                   <SelectTrigger className="h-9 text-sm mt-1">
-                    <SelectValue placeholder="Select organization" />
+                    <SelectValue
+                      placeholder={referenceLoading ? "Loading…" : "Select organization"}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="dolr">Dept. of Land Resources</SelectItem>
-                    <SelectItem value="morth">MoRTH</SelectItem>
-                    <SelectItem value="nhai">NHAI</SelectItem>
-                    <SelectItem value="collectorate-pune">Collectorate, Pune</SelectItem>
+                    {referenceData?.organizations.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label className="text-xs">Role</Label>
-                <Select>
+                <Select
+                  value={provisionForm.roleId}
+                  onValueChange={(v) => setProvisionForm((f) => ({ ...f, roleId: v }))}
+                >
                   <SelectTrigger className="h-9 text-sm mt-1">
-                    <SelectValue placeholder="Select role" />
+                    <SelectValue placeholder={referenceLoading ? "Loading…" : "Select role"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="national_admin">National Admin / DoLR</SelectItem>
-                    <SelectItem value="ministry_nodal">Ministry Nodal Officer</SelectItem>
-                    <SelectItem value="requiring_org">Requiring Organization</SelectItem>
-                    <SelectItem value="state_nodal">State Nodal Officer</SelectItem>
-                    <SelectItem value="collector_cala">District Collector / CALA</SelectItem>
-                    <SelectItem value="tehsil_sdo">Tehsil / SDO</SelectItem>
-                    <SelectItem value="field_officer">Field Officer / VAO</SelectItem>
+                    {referenceData?.roles.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div>
               <Label className="text-xs">Jurisdiction</Label>
-              <Input placeholder="e.g. Pune District" className="h-9 text-sm mt-1" />
-            </div>
-            <div>
-              <Label className="text-xs">Parent Authority</Label>
-              <Input placeholder="e.g. State Nodal — Maharashtra" className="h-9 text-sm mt-1" />
+              <Select
+                value={provisionForm.jurisdictionId}
+                onValueChange={(v) => setProvisionForm((f) => ({ ...f, jurisdictionId: v }))}
+              >
+                <SelectTrigger className="h-9 text-sm mt-1">
+                  <SelectValue placeholder={referenceLoading ? "Loading…" : "Select jurisdiction"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {referenceData?.jurisdictions.map((j) => (
+                    <SelectItem key={j.id} value={j.id}>
+                      {j.name} ({j.level})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label className="text-xs">Status</Label>
-              <Select defaultValue="active">
+              <Select
+                value={provisionForm.status}
+                onValueChange={(v) => setProvisionForm((f) => ({ ...f, status: v }))}
+              >
                 <SelectTrigger className="h-9 text-sm mt-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <p className="text-[11px] text-muted-foreground bg-slate-50 p-2 rounded">
-              The UI reinforces hierarchical scope — users can only be assigned jurisdictions within their parent authority's scope.
+              Role, organization and jurisdiction must already exist — the server validates each link and writes
+              the user row together with a USER_PROVISIONED audit event. Parent authority is derived from the
+              organization hierarchy, not entered by hand.
             </p>
+            {provisionError && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-[#B42318]" role="alert">
+                {provisionError}
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setShowProvision(false)}>Cancel</Button>
-            <Button size="sm" onClick={() => setShowProvision(false)}>Provision User</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={provisioning}
+              onClick={() => {
+                setShowProvision(false);
+                setProvisionError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" disabled={provisioning || referenceLoading} onClick={runProvision}>
+              {provisioning ? "Provisioning…" : "Provision User"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

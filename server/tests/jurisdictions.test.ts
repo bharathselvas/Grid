@@ -58,7 +58,11 @@ describe("jurisdictions API", () => {
     expect(pune?.officials).toEqual(["Dr. Suhas Diwase, IAS"]);
 
     const haveli = items.find((j) => j.name === "Haveli Tehsil");
-    expect(haveli?.officials).toEqual(["Shri. M. Kamble", "Smt. Kavita Patil"]);
+    // Field officer (Kamble) is scoped to Pargaon village — Task #4 scope fix.
+    expect(haveli?.officials).toEqual(["Smt. Kavita Patil"]);
+
+    const pargaon = items.find((j) => j.name === "Pargaon");
+    expect(pargaon?.officials).toEqual(["Shri. M. Kamble"]);
 
     const chennai = items.find((j) => j.name === "Chennai District");
     expect(chennai?.projectCount).toBe(0);
