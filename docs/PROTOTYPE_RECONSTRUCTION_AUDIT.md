@@ -1,13 +1,13 @@
-# PROTOTYPE RECONSTRUCTION AUDIT — Bhoomi Setu
+# PROTOTYPE RECONSTRUCTION AUDIT — Terranex
 
 > Generated: 2026-09-10
-> Scope: Complete forensic audit of the Bhoomi Setu repository before reconstruction
+> Scope: Complete forensic audit of the Terranex repository before reconstruction
 
 ---
 
 ## EXECUTIVE SUMMARY
 
-Bhoomi Setu V2 is a **frontend-only React SPA** with no backend, no database, no authentication, and no real API connectivity. All data is hardcoded in TypeScript mock files and managed via Zustand client-side stores. The application has **~310+ routes** across **11 role-based portals**, each with its own complete navigation and page set.
+Terranex V2 is a **frontend-only React SPA** with no backend, no database, no authentication, and no real API connectivity. All data is hardcoded in TypeScript mock files and managed via Zustand client-side stores. The application has **~310+ routes** across **11 role-based portals**, each with its own complete navigation and page set.
 
 ### Critical Findings
 

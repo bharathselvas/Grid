@@ -83,7 +83,7 @@ export function RoleGalleryPage() {
                   <Shield className="h-7 w-7" />
                 </span>
                 <div>
-                  <h1 className="text-xl font-bold tracking-tight text-[#0F2340] sm:text-2xl">BHOOMI SETU</h1>
+                  <h1 className="text-xl font-bold tracking-tight text-[#0F2340] sm:text-2xl">TERRANEX</h1>
                   <p className="text-sm font-medium text-slate-700">National Land Acquisition Operating System</p>
                   <p className="mt-1 max-w-[640px] text-xs leading-relaxed text-muted-foreground">
                     End-to-end acquisition lifecycle under the Right to Fair Compensation and Transparency in Land

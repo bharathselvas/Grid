@@ -19,9 +19,9 @@ describe("GET /health", () => {
 
     const body = res.json();
     expect(body.status).toBe("ok");
-    expect(body.service).toBe("bhoomi-setu-api");
+    expect(body.service).toBe("terranex-api");
     expect(body.database.connected).toBe(true);
-    expect(body.database.name).toBe("bhoomisetu_test");
+    expect(body.database.name).toBe("terranex_test");
     expect(body.database.postgisVersion).toMatch(/3\./);
     expect(body.migrations.applied).toBeGreaterThanOrEqual(2);
     expect(body.migrations.names).toContain("0001_init.sql");

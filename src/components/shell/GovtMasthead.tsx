@@ -46,7 +46,7 @@ export function GovtMasthead() {
           </span>
           <span className="min-w-0">
             <span className="flex items-center gap-2">
-              <span className="text-[15px] font-bold tracking-tight text-[#0F2340]">BHOOMI SETU</span>
+              <span className="text-[15px] font-bold tracking-tight text-[#0F2340]">TERRANEX</span>
               <Badge variant="muted" className="hidden sm:inline-flex text-[10px] leading-none">V2 Mock</Badge>
             </span>
             <span className="hidden sm:block text-[11px] leading-none text-muted-foreground">National Land Acquisition Operating System &nbsp;·&nbsp; DoLR</span>

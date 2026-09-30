@@ -23,7 +23,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       status: healthy ? "ok" : "unavailable",
-      service: "bhoomi-setu-api",
+      service: "terranex-api",
       environment: env.NODE_ENV,
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
       time: new Date().toISOString(),

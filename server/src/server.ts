@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   }
 
   await app.listen({ port: env.PORT, host: env.HOST });
-  app.log.info(`Bhoomi Setu API listening on http://${env.HOST}:${env.PORT} (health: /health)`);
+  app.log.info(`Terranex API listening on http://${env.HOST}:${env.PORT} (health: /health)`);
 
   const shutdown = async (signal: string) => {
     app.log.info(`received ${signal}, shutting down`);

@@ -1,4 +1,4 @@
-# Bhoomi Setu V2 — National Land Acquisition Operating System
+# Terranex V2 — National Land Acquisition Operating System
 
 **SIH 2026 · Problem Statement 26016 · Department of Land Resources (DoLR), Government of India**
 
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-Bhoomi Setu is a national operating system designed to digitize and streamline the **complete land acquisition lifecycle** under the Right to Fair Compensation and Transparency in Land Acquisition, Rehabilitation and Resettlement (RFCTLARR) Act, 2013.
+Terranex is a national operating system designed to digitize and streamline the **complete land acquisition lifecycle** under the Right to Fair Compensation and Transparency in Land Acquisition, Rehabilitation and Resettlement (RFCTLARR) Act, 2013.
 
 It serves as a single source of truth across the administrative hierarchy, connecting project proponents, national and state ministries, district collectors (CALA), field officers, and affected citizens. It transforms a heavily paper-based, fragmented process into a transparent, auditable, and time-bound digital workflow.
 
@@ -128,7 +128,7 @@ flowchart TD
 ## 9. Repository Structure
 
 ```text
-bhoomisetu/
+terranex/
 ├── src/
 │   ├── app/           # Router configuration and role redirect logic
 │   ├── components/    # Reusable UI components (shadcn primitives, shell)
@@ -205,7 +205,7 @@ erDiagram
 
 Migrations are checksum-tracked in `schema_migrations`; editing an applied migration is rejected.
 
-**Local database**: Docker container `bhoomi-setu-db` (`postgis/postgis:16-3.4`) at `localhost:5432`. Connection strings live in `.env` / `server/.env` (both gitignored) — see `.env.example`. A Supabase project uses the same schema; nothing in the codebase is Supabase-specific.
+**Local database**: Docker container `terranex-db` (`postgis/postgis:16-3.4`) at `localhost:5432`. Connection strings live in `.env` / `server/.env` (both gitignored) — see `.env.example`. A Supabase project uses the same schema; nothing in the codebase is Supabase-specific.
 
 ## 14. API Documentation
 
@@ -271,15 +271,15 @@ cp server/.env.example server/.env   # backend-only alternative
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd bhoomisetu
+cd terranex
 
 # Install dependencies
 npm install
 npm --prefix server install
 
 # Start PostgreSQL + PostGIS (local development)
-docker run -d --name bhoomi-setu-db -p 5432:5432 \
-  -e POSTGRES_USER=bhoomi -e POSTGRES_PASSWORD=bhoomi2026 -e POSTGRES_DB=bhoomisetu \
+docker run -d --name terranex-db -p 5432:5432 \
+  -e POSTGRES_USER=terranex -e POSTGRES_PASSWORD=terranex2026 -e POSTGRES_DB=terranex \
   postgis/postgis:16-3.4
 
 # Configure environment
@@ -317,7 +317,7 @@ npm run preview
   ```bash
   npm --prefix server run test
   ```
-  Tests bootstrap a separate `bhoomisetu_test` database (create → migrate → seed) and cover `/health`, project create/retrieve, validation and conflict errors, 404s, parcel geometry retrieval, the jurisdiction hierarchy, audit event creation and append-only enforcement. Nothing about the database is mocked.
+  Tests bootstrap a separate `terranex_test` database (create → migrate → seed) and cover `/health`, project create/retrieve, validation and conflict errors, 404s, parcel geometry retrieval, the jurisdiction hierarchy, audit event creation and append-only enforcement. Nothing about the database is mocked.
 
 Unit and E2E browser testing (Playwright) are planned but not yet implemented.
 
@@ -359,7 +359,7 @@ UI errors are handled with standard React error boundaries and localized toast n
 | **Database** | ✅ Implemented (foundation) | PostgreSQL 16 + PostGIS 3.4, versioned migrations, deterministic seed, append-only audit. |
 | **Admin pages on live data** | ✅ Implemented | National Overview, Monitoring, Project Detail, Risk & Delay, Hierarchy are live-only (explicit error + retry, no demo fallback). Organizations, Users & Roles, Audit Trail read the API with demo fallback. |
 | **Workflow stage transitions** | ✅ Implemented | `POST /api/workflow/instances/:id/transitions` — RBAC (403), linear lifecycle (409), transactional instance+entity+audit writes. |
-| **Integration tests** | ✅ Implemented | Vitest against a real `bhoomisetu_test` database (47 tests). |
+| **Integration tests** | ✅ Implemented | Vitest against a real `terranex_test` database (47 tests). |
 | **PFMS / ULPIN / DILRMP** | 📋 Planned | UI elements exist; API integration pending. |
 | **Production authentication** | 📋 Planned | Development actor header in place; Supabase JWT next. |
 

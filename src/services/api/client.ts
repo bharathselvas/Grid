@@ -88,7 +88,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     throw new ApiError(
       0,
       "NETWORK_ERROR",
-      `Could not reach the Bhoomi Setu API: ${error instanceof Error ? error.message : "network error"}`,
+      `Could not reach the Terranex API: ${error instanceof Error ? error.message : "network error"}`,
     );
   }
 

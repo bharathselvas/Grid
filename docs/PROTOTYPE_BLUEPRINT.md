@@ -1,4 +1,4 @@
-# BHOOMI SETU — PROTOTYPE RECONSTRUCTION BLUEPRINT
+# TERRANEX — PROTOTYPE RECONSTRUCTION BLUEPRINT
 
 > Generated: 2026-09-10
 > Statutory Basis: Right to Fair Compensation and Transparency in Land Acquisition, Rehabilitation and Resettlement Act, 2013 (RFCTLARR Act)
@@ -35,7 +35,7 @@
 
 ### 1.1 Repository State
 
-Bhoomi Setu V2 is a **frontend-only React SPA**. There is no backend, no database, no authentication, no API, and no server-side logic. Every page reads from hardcoded TypeScript mock objects.
+Terranex V2 is a **frontend-only React SPA**. There is no backend, no database, no authentication, no API, and no server-side logic. Every page reads from hardcoded TypeScript mock objects.
 
 **Tech Stack (Frontend Only)**:
 - React 18.3 + TypeScript 5.6 + Vite 5
@@ -193,7 +193,7 @@ The SIA Expert Group is **not** part of the government hierarchy. Under RFCTLARR
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    BHOOMI SETU PLATFORM                         │
+│                    TERRANEX PLATFORM                            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐     │
@@ -1612,7 +1612,7 @@ Prototype (Local):
       └── notices/{noticeId}-{filename}
 
 Production (S3):
-  s3://bhoomisetu-{env}/
+  s3://terranex-{env}/
   ├── projects/{projectId}/
   │   ├── documents/
   │   └── evidence/

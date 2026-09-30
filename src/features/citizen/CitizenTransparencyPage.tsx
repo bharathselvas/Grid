@@ -34,7 +34,7 @@ export default function CitizenTransparencyPage() {
       <div>
         <h1 className="text-3xl font-bold text-[#0F2340]">Acquisition Transparency</h1>
         <p className="text-muted-foreground mt-1">
-          Public aggregate data for all land acquisition projects tracked on Bhoomi Setu.
+          Public aggregate data for all land acquisition projects tracked on Terranex.
         </p>
       </div>
 

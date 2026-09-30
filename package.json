@@ -1,9 +1,9 @@
 {
-  "name": "bhoomi-setu-v2",
+  "name": "terranex",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Bhoomi Setu V2 — SIH 2026 PS 26016 — Frontend-first mock for geospatial land-record visualization",
+  "description": "Terranex V2 — SIH 2026 PS 26016 — Frontend-first mock for geospatial land-record visualization",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

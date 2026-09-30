@@ -1,9 +1,9 @@
 {
-  "name": "bhoomi-setu-server",
+  "name": "terranex-server",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Bhoomi Setu — Fastify + TypeScript modular monolith API (Supabase PostgreSQL + PostGIS)",
+  "description": "Terranex — Fastify + TypeScript modular monolith API (Supabase PostgreSQL + PostGIS)",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",

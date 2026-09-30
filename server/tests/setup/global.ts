@@ -3,7 +3,7 @@ import { TEST_DATABASE_NAME, TEST_DATABASE_URL } from "./dbUrl.js";
 
 /**
  * Test database bootstrap:
- *   1. create `bhoomisetu_test` if missing
+ *   1. create `terranex_test` if missing
  *   2. apply migrations (idempotent, same SQL as production)
  *   3. truncate domain tables + re-seed (deterministic starting state)
  *

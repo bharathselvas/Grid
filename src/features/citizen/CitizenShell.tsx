@@ -14,7 +14,7 @@ export function CitizenShell() {
       <footer className="border-t bg-white py-6">
         <div className="max-w-6xl mx-auto px-4 text-center text-xs text-muted-foreground space-y-1">
           <p>भारत सरकार / Government of India — भूमि संसाधन विभाग / Department of Land Resources</p>
-          <p>Bhoomi Setu — Land Acquisition Information & Citizen Services</p>
+          <p>Terranex — Land Acquisition Information & Citizen Services</p>
           <p className="text-amber-600 font-medium">All monetary values are MOCK / SANDBOX for demonstration</p>
         </div>
       </footer>

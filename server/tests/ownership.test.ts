@@ -498,7 +498,7 @@ describe("workflow operational scope (POST /api/workflow/instances/:id/transitio
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("POST /api/users", () => {
-  const probeEmail = `task4.probe.${randomUUID().slice(0, 8)}@bhoomisetu.test`;
+  const probeEmail = `task4.probe.${randomUUID().slice(0, 8)}@terranex.test`;
   let probeUserId: string;
 
   it("provisions a real user with validated role/organization/jurisdiction", async () => {
@@ -571,7 +571,7 @@ describe("POST /api/users", () => {
       headers: asActor(),
       payload: {
         name: "Smt. Bad Role",
-        email: `bad.role.${randomUUID().slice(0, 8)}@bhoomisetu.test`,
+        email: `bad.role.${randomUUID().slice(0, 8)}@terranex.test`,
         roleId: "definitely_not_a_role",
         organizationId: ORG_COL_PUNE_ID,
         jurisdictionId: BARAMATI_JURIS_ID,
@@ -586,7 +586,7 @@ describe("POST /api/users", () => {
       headers: asActor(),
       payload: {
         name: "Smt. Bad Jurisdiction",
-        email: `bad.juris.${randomUUID().slice(0, 8)}@bhoomisetu.test`,
+        email: `bad.juris.${randomUUID().slice(0, 8)}@terranex.test`,
         roleId: "field_officer",
         organizationId: ORG_COL_PUNE_ID,
         jurisdictionId: randomUUID(),

@@ -1,5 +1,5 @@
 -- ============================================================================
--- Bhoomi Setu — 0002_seed_roles.sql
+-- Terranex — 0002_seed_roles.sql
 -- Canonical role reference data (the ONE role model for the whole system).
 -- Mirrors src/types/rbac.ts RoleId on the frontend; the database is the
 -- authoritative copy for the backend.

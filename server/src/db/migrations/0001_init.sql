@@ -1,5 +1,5 @@
 -- ============================================================================
--- Bhoomi Setu — 0001_init.sql
+-- Terranex — 0001_init.sql
 -- Canonical schema for the modular monolith (Fastify + Drizzle + PostgreSQL).
 --
 -- Design rules:

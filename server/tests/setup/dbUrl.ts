@@ -26,10 +26,10 @@ function withDatabaseName(url: string, dbName: string): string {
 const base =
   process.env.TEST_DATABASE_URL ??
   process.env.DATABASE_URL ??
-  "postgresql://bhoomi:bhoomi2026@127.0.0.1:5432/bhoomisetu";
+  "postgresql://terranex:terranex2026@127.0.0.1:5432/terranex";
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
   ? process.env.TEST_DATABASE_URL
-  : withDatabaseName(base, "bhoomisetu_test");
+  : withDatabaseName(base, "terranex_test");
 
 export const TEST_DATABASE_NAME = new URL(TEST_DATABASE_URL).pathname.replace("/", "");

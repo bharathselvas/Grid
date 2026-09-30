@@ -55,7 +55,7 @@ export default function CitizenHomePage() {
       <section>
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg text-[#0F2340]">How Bhoomi Setu Works</CardTitle>
+            <CardTitle className="text-lg text-[#0F2340]">How Terranex Works</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="relative">
